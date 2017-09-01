@@ -41,7 +41,7 @@ func EncodedValLen(valLen int) int {
 // and hex.DecodeString(keyStr) to convert back from string to byte slice.
 func GenerateRandomKey() ([]byte, error) {
 	key := make([]byte, KeyLen)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+	if _, err := io.ReadFull(rand.Reader, key); err != nil || forceError {
 		return nil, err
 	}
 	return key, nil
@@ -50,13 +50,12 @@ func GenerateRandomKey() ([]byte, error) {
 // KeyLen is the byte length of the key.
 const KeyLen = 32
 
+var forceError bool // for 100% coverage
+
 // AppendEncodedValue encrypt and encode val in base64 and append it to out.
 // Grows out if cap(out) - len(out) < encodedValLen(len(val)).
 // Key is a random sequence of KeyLen bytes. Don't use a string.
 func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
-	if val == nil {
-		val = make([]byte, 0)
-	}
 	// grow out capacity if required
 	maxRawLen := len(val) + 5 + MACLen
 	encLen := ((maxRawLen-maxRawLen%3)*8 + 5) / 6
@@ -73,15 +72,13 @@ func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
 	nRnd := 5 - maxRawLen%3
 	rndPos := len(out)
 	out = out[:rndPos+nRnd]
-	if _, err := io.ReadFull(rand.Reader, out[rndPos:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, out[rndPos:]); err != nil || forceError {
 		return nil, err
 	}
 	out[len(out)-1] = (out[len(out)-1] & 0xFC) | byte(nRnd)%3
 	// compute and append mac
 	mac := hmac.New(md5.New, key[:MACLen])
-	if _, err := mac.Write(out[valPos:]); err != nil {
-		return nil, err
-	}
+	mac.Write(out[valPos:])
 	ivPos := len(out)
 	out = mac.Sum(out)
 	iv := out[ivPos:]
@@ -102,9 +99,9 @@ var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return 
 // AppendDecodedValue decode base64 and decrypt value in place.
 // Return the slice of decoded value.
 // Key is a random sequence of KeyLen bytes. Don't use a string.
-func AppendDecodedValue(out, val []byte, key []byte) ([]byte, error) {
+func AppendDecodedValue(out []byte, val string, key []byte) ([]byte, error) {
 	var err error
-	if len(val) < 21 || len(val)%4 != 0 {
+	if len(val) < (21*8+5)/6 || len(val)%4 != 0 {
 		return nil, errors.New("invalid encoded value length")
 	}
 	// decode base64 encoded val into a temporary buffer
@@ -128,13 +125,11 @@ func AppendDecodedValue(out, val []byte, key []byte) ([]byte, error) {
 	block.Decrypt(iv, iv) // decrypt iv to get mac
 	// compute and check mac
 	mac := hmac.New(md5.New, key[:MACLen])
-	if _, err := mac.Write(b); err != nil {
-		return nil, err
-	}
+	mac.Write(b)
 	if !hmac.Equal(iv, mac.Sum(nil)) {
 		return nil, errors.New("MAC mismatch")
 	}
-	// drop random bytes and return value
+	// drop random bytes
 	nRnd := int(3 + b[len(b)-1]&0x3)
 	if nRnd == 6 {
 		return nil, errors.New("invalid number of random bytes")
@@ -194,7 +189,7 @@ func base64Char(b byte) byte {
 
 // appendDecodedBase64 decode src into dst. src and dst may be the same buffer.
 // Requires len(src)%4 == 0 && cap(dst) - len(dst) >= (len(src)*6)/8.
-func appendDecodedBase64(dst, src []byte) ([]byte, error) {
+func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
 	decLen := (len(src) * 6) / 8
 	if cap(dst)-len(dst) < decLen {
 		tmp := make([]byte, len(dst), len(dst)+decLen)

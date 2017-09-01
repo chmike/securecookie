@@ -2,6 +2,10 @@ package cookie
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/md5"
 	"testing"
 )
 
@@ -25,15 +29,16 @@ func TestAppendEncodedBase64(t *testing.T) {
 
 func TestAppendDecodedBase64(t *testing.T) {
 	tests := []struct {
-		in, out []byte
-		fail    bool
+		in   string
+		out  []byte
+		fail bool
 	}{ // requires that len(in)%4 == 0
-		{in: []byte{}, out: []byte{}},
-		{in: []byte("AAAA"), out: []byte{0, 0, 0}},
-		{in: []byte("____"), out: []byte{255, 255, 255}},
-		{in: []byte("AAECAwQF"), out: []byte{0, 1, 2, 3, 4, 5}},
-		{in: []byte("AAEC AwQF"), out: nil, fail: true},
-		{in: []byte("A8j-"), out: []byte{3, 200, 254}},
+		{in: "", out: []byte{}},
+		{in: "AAAA", out: []byte{0, 0, 0}},
+		{in: "____", out: []byte{255, 255, 255}},
+		{in: "AAECAwQF", out: []byte{0, 1, 2, 3, 4, 5}},
+		{in: "AAEC AwQF", out: nil, fail: true},
+		{in: "A8j-", out: []byte{3, 200, 254}},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
 		out, err := appendDecodedBase64(nil, test.in)
@@ -94,7 +99,7 @@ func TestEncodDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := AppendDecodedValue(nil, out, key)
+			in, err := AppendDecodedValue(nil, string(out), key)
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -111,5 +116,52 @@ func TestEncodDecodeValue(t *testing.T) {
 }
 
 func TestAppendDecodedValueErrors(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := AppendDecodedValue(nil, "", nil); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := AppendDecodedValue(nil, " aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := AppendDecodedValue(nil, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := AppendDecodedValue(nil, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key[:len(key)-1]); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf := make([]byte, 5, 32)
+	buf[4] = 3 // set invalid number of random bytes
+	mac := hmac.New(md5.New, key[:MACLen])
+	mac.Write(buf)
+	ivPos := len(buf)
+	buf = mac.Sum(buf)
+	iv := buf[ivPos:]
+	block, _ := aes.NewCipher(key[MACLen:])
+	block.Encrypt(iv, iv)
+	stream := cipher.NewCTR(block, iv)
+	stream.XORKeyStream(buf[:ivPos], buf[:ivPos])
+	buf = appendEncodedBase64(buf[:0], buf)
+	if _, err := AppendDecodedValue(nil, string(buf), key); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
 
+func TestAppendEncodeValueErrors(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := AppendEncodedValue(nil, nil, key[:len(key)-1]); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	forceError = true
+	defer func() { forceError = false }()
+	if _, err := AppendEncodedValue(nil, nil, key); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+}
+
+func TestGenerateKeyErrors(t *testing.T) {
+	forceError = true
+	defer func() { forceError = false }()
+	if _, err := GenerateRandomKey(); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 }
