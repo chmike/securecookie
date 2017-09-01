@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"unsafe"
 )
 
 // MACLen is the byte length of the MAC.
@@ -52,10 +53,10 @@ const KeyLen = 32
 
 var forceError bool // for 100% coverage
 
-// AppendEncodedValue encrypt and encode val in base64 and append it to out.
+// AppendEncodedStringValue encrypt and encode val in base64 and append it to out.
 // Grows out if cap(out) - len(out) < encodedValLen(len(val)).
 // Key is a random sequence of KeyLen bytes. Don't use a string.
-func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
+func AppendEncodedStringValue(out []byte, val string, key []byte) ([]byte, error) {
 	// grow out capacity if required
 	maxRawLen := len(val) + 5 + MACLen
 	encLen := ((maxRawLen-maxRawLen%3)*8 + 5) / 6
@@ -94,6 +95,13 @@ func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
 	return appendEncodedBase64(out[:valPos], out[valPos:]), nil
 }
 
+// AppendEncodedValue encrypt and encode val in base64 and append it to out.
+// Grows out if cap(out) - len(out) < encodedValLen(len(val)).
+// Key is a random sequence of KeyLen bytes. Don't use a string.
+func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
+	return AppendEncodedStringValue(out, *(*string)(unsafe.Pointer(&val)), key)
+}
+
 var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
 
 // AppendDecodedValue decode base64 and decrypt value in place.
@@ -129,7 +137,7 @@ func AppendDecodedValue(out []byte, val string, key []byte) ([]byte, error) {
 	if !hmac.Equal(iv, mac.Sum(nil)) {
 		return nil, errors.New("MAC mismatch")
 	}
-	// drop random bytes
+	// drop random bytes and return slice
 	nRnd := int(3 + b[len(b)-1]&0x3)
 	if nRnd == 6 {
 		return nil, errors.New("invalid number of random bytes")
@@ -137,6 +145,15 @@ func AppendDecodedValue(out []byte, val string, key []byte) ([]byte, error) {
 	b = b[:len(b)-nRnd]
 	// append decoded value to out
 	return append(out, b...), nil
+}
+
+// DecodeStringValue return the encoded value extracted from val using the given key.
+func DecodeStringValue(val string, key []byte) (string, error) {
+	res, err := AppendDecodedValue(nil, val, key)
+	if err != nil {
+		return "", err
+	}
+	return *(*string)(unsafe.Pointer(&res)), nil
 }
 
 // encodeBase64 encodes val in place into base64. src and dst may overlap.

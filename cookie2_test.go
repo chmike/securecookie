@@ -165,3 +165,24 @@ func TestGenerateKeyErrors(t *testing.T) {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
+
+func TestDecodeStringValue(t *testing.T) {
+	in := "abcdef"
+	key := make([]byte, KeyLen)
+	enc, err := AppendEncodedStringValue(nil, in, key)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	out, err := DecodeStringValue(string(enc), key)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if out != in {
+		t.Errorf("mismatch in: '%s' out: '%s'", in, out)
+	}
+
+	_, err = DecodeStringValue(string(enc), key[:len(key)-1])
+	if err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
