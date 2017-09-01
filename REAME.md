@@ -1,4 +1,4 @@
-# Encode and Decode secure value
+# Encode and Decode secure cookie value
 
 This package provides functions to encode and decode value for use as secure cookie.
 
