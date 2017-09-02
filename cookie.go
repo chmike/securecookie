@@ -7,35 +7,15 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"sync"
 	"unsafe"
 )
 
-// MACLen is the byte length of the MAC.
-const MACLen = md5.Size
-
-/*
-Value Encoding: [value][rand][mac]
-
-There are 3,4 or 5 random bytes to randomize the mac. The two less significant bit of the
-last random byte encode 0, 1 or 2 which is the number of random bytes minus 3.
-
-The mac is MACLen byte long. It is the size of a hmac md5 and an aes block. The encrypted
-mac is used as iv for the aes with ctr that encrypt the value and the random bytes.
-
-The encrypted value, random bytes and the mac is encoded in base64 using the URLEncoding
-as defined here https://tools.ietf.org/html/rfc4648#section-5. 0 bits are added to fill the
-last byte. No padding is needed because the length of the encrypted bytes is a multiple of
-3.
-*/
-
-// EncodedValLen return the byte length of the encrypted and base64 encoded value
-// of length valLen.
-func EncodedValLen(valLen int) int {
-	l := valLen + 5 + MACLen
-	return ((l-l%3)*8 + 5) / 6
-}
+// KeyLen is the byte length of the key.
+const KeyLen = 32
 
 // GenerateRandomKey return a random key of KeyLen bytes.
 // Use hex.EncodeToString(key) to get the key as hexadecimal string,
@@ -48,125 +28,206 @@ func GenerateRandomKey() ([]byte, error) {
 	return key, nil
 }
 
-// KeyLen is the byte length of the key.
-const KeyLen = 32
-
-var forceError bool // for 100% coverage
-
-// AppendEncodedStringValue encrypt and encode val in base64 and append it to out.
-// Grows out if cap(out) - len(out) < encodedValLen(len(val)).
-// Key is a random sequence of KeyLen bytes. Don't use a string.
-func AppendEncodedStringValue(out []byte, val string, key []byte) ([]byte, error) {
-	// grow out capacity if required
-	maxRawLen := len(val) + 5 + MACLen
-	encLen := ((maxRawLen-maxRawLen%3)*8 + 5) / 6
-	if cap(out)-len(out) < encLen {
-		tmp := make([]byte, len(out), encLen)
-		copy(tmp, out)
-		out = tmp
-	}
-	// append val to out
-	valPos := len(out)
-	out = out[:valPos+len(val)]
-	copy(out[valPos:], val)
-	// append random bytes
-	nRnd := 5 - maxRawLen%3
-	rndPos := len(out)
-	out = out[:rndPos+nRnd]
-	if _, err := io.ReadFull(rand.Reader, out[rndPos:]); err != nil || forceError {
-		return nil, err
-	}
-	out[len(out)-1] = (out[len(out)-1] & 0xFC) | byte(nRnd)%3
-	// compute and append mac
-	mac := hmac.New(md5.New, key[:MACLen])
-	mac.Write(out[valPos:])
-	ivPos := len(out)
-	out = mac.Sum(out)
-	iv := out[ivPos:]
-	// encrypt value, random bytes and mac
-	block, err := aes.NewCipher(key[MACLen:])
-	if err != nil {
-		return nil, err
-	}
-	block.Encrypt(iv, iv) // encrypt mac to get iv
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(out[valPos:ivPos], out[valPos:ivPos])
-	// encode in base64
-	return appendEncodedBase64(out[:valPos], out[valPos:]), nil
+// A Cookie holds the cookie parameters. Use BytesToString() to convert
+// a byte slice value to a string value without allocation and data copy.
+type Cookie struct {
+	Name     string // Name of the cookie
+	Value    string // Clear text value to store in the cookie
+	Path     string // Optional : URL path to which the cookie will be returned
+	Domain   string // Optional : domain to which the cookie will be returned
+	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
+	Secure   bool   // Optional : cookie can only be send over HTTPS connections
 }
 
-// AppendEncodedValue encrypt and encode val in base64 and append it to out.
-// Grows out if cap(out) - len(out) < encodedValLen(len(val)).
-// Key is a random sequence of KeyLen bytes. Don't use a string.
-func AppendEncodedValue(out, val []byte, key []byte) ([]byte, error) {
-	return AppendEncodedStringValue(out, *(*string)(unsafe.Pointer(&val)), key)
+// Check return nil if the cookie fields are all valid.
+func Check(c *Cookie) error {
+	if err := CheckName(c.Name); err != nil {
+		return err
+	}
+	if err := CheckPath(c.Path); err != nil {
+		return err
+	}
+	if err := CheckDomain(c.Domain); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CheckName return an error if the cookie name is invalid.
+func CheckName(name string) error {
+	if len(name) == 0 {
+		return errors.New("cookie name: empty value")
+	}
+	if err := checkChars(name, isValidNameChar); err != nil {
+		return fmt.Errorf("cookie name: %s", err)
+	}
+	return nil
+}
+
+// CheckPath return an error if the cookie path is invalid
+func CheckPath(path string) error {
+	if err := checkChars(path, isValidPathChar); err != nil {
+		return fmt.Errorf("cookie path: %s", err)
+	}
+	return nil
+}
+
+// CheckDomain return an error if the domain name is not valid.
+// See https://tools.ietf.org/html/rfc1034#section-3.5 and
+// https://tools.ietf.org/html/rfc1123#section-2.
+func CheckDomain(name string) error {
+	if len(name) > 255 {
+		return fmt.Errorf("cookie domain: name length is %d, can't exceed 255", len(name))
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c == '.' {
+			if i == 0 {
+				return errors.New("cookie domain: start with '.'")
+			}
+			if pc := name[i-1]; pc == '-' || pc == '.' {
+				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", pc, i-1)
+			}
+			if i == len(name)-1 {
+				return errors.New("cookie domain: ends with '.'")
+			}
+			if nc := name[i+1]; nc == '-' {
+				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", nc, i+1)
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c <= 'A' && c >= 'Z') || (c >= 'a' && c <= 'z')) {
+			if c < ' ' || c == 0x7F {
+				return fmt.Errorf("cookie domain: invalid character %#02X at offset %d", c, i)
+			}
+			return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", c, i)
+		}
+	}
+	return nil
+}
+
+func isValidNameChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+		c == '!' || (c >= '#' && c < '(') || c == '*' || c == '+' || c == '-' ||
+		c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~'
+}
+
+func isValidPathChar(c byte) bool {
+	return (c >= ' ' && c < 0x7F) && c != ';'
+}
+
+func checkChars(s string, isValid func(c byte) bool) error {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !isValid(c) {
+			if c < ' ' || c >= 0x7F {
+				return fmt.Errorf("invalid character %#02X at offset %d", c, i)
+			}
+			return fmt.Errorf("invalid character '%c' at offset %d", c, i)
+		}
+	}
+	return nil
+}
+
+// SetSecure adds the given cookie to the server's response. The cokie value is
+// encrypted and encoded in base64. Assume that c.Check() has returned nil.
+func SetSecure(w http.ResponseWriter, c *Cookie, key []byte) error {
+	bPtr := bufPool.Get().(*[]byte)
+	b := *bPtr
+	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
+	encValLen := EncodedValueLen(len(c.Value))
+	totLen := len(c.Name) + 1 + encValLen
+	if len(c.Path) > 0 {
+		totLen += 7 + len(c.Path)
+	}
+	if len(c.Domain) > 0 {
+		totLen += 7 + len(c.Domain)
+	}
+	if c.HTTPOnly {
+		totLen += 10
+	}
+	if c.Secure {
+		totLen += 8
+	}
+	if cap(b) < totLen {
+		b = make([]byte, 0, totLen+20)
+	}
+	var pos int
+	b = b[:totLen]
+	pos += copy(b[pos:], c.Name)
+	pos += copy(b[pos:], "=")
+	encVal, err := encodeValue(b[pos:], *(*string)(unsafe.Pointer(&c.Value)), key)
+	if err != nil {
+		return err
+	}
+	pos += len(encVal)
+	if len(c.Path) > 0 {
+		pos += copy(b[pos:], "; Path=")
+		pos += copy(b[pos:], c.Path)
+	}
+	if len(c.Domain) > 0 {
+		pos += copy(b[pos:], "; Domain=")
+		pos += copy(b[pos:], c.Domain)
+	}
+	if c.HTTPOnly {
+		pos += copy(b[pos:], "; HttpOnly")
+	}
+	if c.Secure {
+		pos += copy(b[pos:], "; Secure")
+	}
+	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
+	return nil
 }
 
 var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
 
-// AppendDecodedValue decode base64 and decrypt value in place.
-// Return the slice of decoded value.
-// Key is a random sequence of KeyLen bytes. Don't use a string.
-func AppendDecodedValue(out []byte, val string, key []byte) ([]byte, error) {
-	var err error
-	if len(val) < (21*8+5)/6 || len(val)%4 != 0 {
-		return nil, errors.New("invalid encoded value length")
+// EncodedValueLen return the encoded byte length of the value of valLen bytes.
+func EncodedValueLen(valLen int) int {
+	l := valLen + 5 + macLen
+	return ((l-l%3)*8 + 5) / 6
+}
+
+// encodeValue encodes the value in dst overriding it's content.
+// Requires: cap(dst) >= EncodedValLen(len(val))
+func encodeValue(dst []byte, val string, key []byte) ([]byte, error) {
+	nRnd := 5 - (len(val)+5+macLen)%3
+	msgLen := len(val) + nRnd
+	if cap(dst) < ((msgLen+macLen)*8+5)/6 {
+		return nil, errors.New("would overflow")
 	}
-	// decode base64 encoded val into a temporary buffer
-	bPtr := bufPool.Get().(*[]byte)
-	defer bufPool.Put(bPtr)
-	b := (*bPtr)[:0]
-	if b, err = appendDecodedBase64(b, val); err != nil {
+	dst = dst[:msgLen]
+	if _, err := io.ReadFull(rand.Reader, dst[copy(dst, val):]); err != nil || forceError {
 		return nil, err
 	}
-	bPtr = &b
-	// decrypt value
-	ivPos := len(b) - MACLen
-	iv := b[ivPos:]
-	b = b[:ivPos]
-	block, err := aes.NewCipher(key[MACLen:])
+	dst[len(dst)-1] = (dst[len(dst)-1] & 0xFC) | byte(nRnd)%3
+	mac := hmac.New(md5.New, key[:macLen])
+	mac.Write(dst)
+	msg := dst
+	dst = mac.Sum(dst)
+	block, err := aes.NewCipher(key[macLen:])
 	if err != nil {
 		return nil, err
 	}
+	iv := dst[msgLen:]
+	block.Encrypt(iv, iv)
 	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(b, b)
-	block.Decrypt(iv, iv) // decrypt iv to get mac
-	// compute and check mac
-	mac := hmac.New(md5.New, key[:MACLen])
-	mac.Write(b)
-	if !hmac.Equal(iv, mac.Sum(nil)) {
-		return nil, errors.New("MAC mismatch")
-	}
-	// drop random bytes and return slice
-	nRnd := int(3 + b[len(b)-1]&0x3)
-	if nRnd == 6 {
-		return nil, errors.New("invalid number of random bytes")
-	}
-	b = b[:len(b)-nRnd]
-	// append decoded value to out
-	return append(out, b...), nil
+	stream.XORKeyStream(msg, msg)
+	return encodeBase64(dst, dst)
 }
 
-// DecodeStringValue return the encoded value extracted from val using the given key.
-func DecodeStringValue(val string, key []byte) (string, error) {
-	res, err := AppendDecodedValue(nil, val, key)
-	if err != nil {
-		return "", err
-	}
-	return *(*string)(unsafe.Pointer(&res)), nil
-}
+// macLen is the byte length of the MAC.
+const macLen = md5.Size
 
-// encodeBase64 encodes val in place into base64. src and dst may overlap.
-// Requires: val != nil && cap(val) >= (len(val)*8+5)/6 && len(val)%3 == 0.
-func appendEncodedBase64(dst, src []byte) []byte {
-	encLen := (len(src)*8 + 5) / 6
-	if cap(dst)-len(dst) < encLen {
-		tmp := make([]byte, len(dst), len(dst)+encLen)
-		copy(tmp, dst)
-		dst = tmp
+// encodeBase64 encodes src into dst in base64. src and dst may overlabe same slice.
+// Requires: cap(dst) >= (len(src)*8+5)/6 && len(src)%3 == 0.
+func encodeBase64(dst, src []byte) ([]byte, error) {
+	if len(src)%3 != 0 {
+		return nil, errors.New("invalid src size")
 	}
-	srcIdx := len(src)
-	dstIdx := len(dst) + encLen
+	srcIdx, dstIdx := len(src), (len(src)*8+5)/6
+	if cap(dst) < dstIdx {
+		return nil, errors.New("would overflow")
+	}
 	dst = dst[:dstIdx]
 	for srcIdx > 0 {
 		srcIdx--
@@ -184,11 +245,11 @@ func appendEncodedBase64(dst, src []byte) []byte {
 		dstIdx--
 		dst[dstIdx] = base64Char(byte(v >> 18))
 	}
-	return dst
+	return dst, nil
 }
 
-// base64Char converts a byte to Base64 URL encoding.
-// The two most significant bits are ignored.
+// base64Char converts a byte to Base64 URL encoding character.
+// The two most significant bits of the input byte are ignored.
 // See https://tools.ietf.org/html/rfc4648#section-5.
 func base64Char(b byte) byte {
 	b &= 0x3F
@@ -204,18 +265,62 @@ func base64Char(b byte) byte {
 	return '_' // b == 63
 }
 
-// appendDecodedBase64 decode src into dst. src and dst may be the same buffer.
-// Requires len(src)%4 == 0 && cap(dst) - len(dst) >= (len(src)*6)/8.
-func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
-	decLen := (len(src) * 6) / 8
-	if cap(dst)-len(dst) < decLen {
-		tmp := make([]byte, len(dst), len(dst)+decLen)
-		copy(tmp, dst)
-		dst = tmp
+// GetSecureValue get decoded value of cookie named name.
+// Use BytesToString() if you need a string instead of a byte slice.
+func GetSecureValue(r *http.Request, name string, key []byte) ([]byte, error) {
+	c, err := r.Cookie(name)
+	if err != nil {
+		return nil, err
 	}
-	var srcIdx int
-	dstIdx := len(dst)
-	dst = dst[:dstIdx+decLen]
+	return decodeValue(c.Value, key)
+}
+
+// decodeValue decode the encoded cookie value.
+// Requires: cap(dst) >= (len(src)*6)/8 && len(src)%4 == 0.
+func decodeValue(val string, key []byte) ([]byte, error) {
+	if len(val) < 28 {
+		return nil, errors.New("invalid value length")
+	}
+	if len(key) < macLen {
+		return nil, errors.New("invalid key")
+	}
+	b := make([]byte, (len(val)*6)/8)
+	if _, err := decodeBase64(b, val); err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key[macLen:])
+	if err != nil {
+		return nil, err
+	}
+	msgLen := len(b) - macLen
+	msg, iv := b[:msgLen], b[msgLen:]
+	stream := cipher.NewCTR(block, iv)
+	stream.XORKeyStream(msg, msg)
+	block.Decrypt(iv, iv)
+	mac := hmac.New(md5.New, key[:macLen])
+	mac.Write(msg)
+	if !hmac.Equal(iv, mac.Sum(nil)) {
+		return nil, errors.New("MAC mismatch")
+	}
+	nRnd := int(3 + msg[msgLen-1]&0x3)
+	if nRnd == 6 {
+		return nil, errors.New("invalid number of random bytes")
+	}
+	return msg[:msgLen-nRnd], nil
+}
+
+// decodeBase64 decode src into dst. src and dst may be the same slice.
+// Requires len(src)%4 == 0 && cap(dst) >= (len(src)*6)/8.
+func decodeBase64(dst []byte, src string) ([]byte, error) {
+	if len(src)%4 != 0 {
+		return nil, errors.New("invalid src size")
+	}
+	decLen := (len(src) * 6) / 8
+	if cap(dst) < decLen {
+		return nil, errors.New("would overflow")
+	}
+	var srcIdx, dstIdx int
+	dst = dst[:decLen]
 	for srcIdx < len(src) {
 		var v uint64
 		for i := 0; i < 4; i++ {
@@ -243,4 +348,16 @@ func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
 		dstIdx++
 	}
 	return dst, nil
+}
+
+var forceError bool // for 100% test coverage
+
+// BytesToString converts a byte slice to a string without
+// making a copy. It is safe if, and only if, the byte slice
+// is not modified during the lifetime of the string.
+// See: https://syslog.ravelin.com/byte-vs-string-in-go-d645b67ca7ff
+func BytesToString(bs []byte) string {
+	// This is copied from runtime. It relies on the string
+	// header being a prefix of the slice header!
+	return *(*string)(unsafe.Pointer(&bs))
 }
