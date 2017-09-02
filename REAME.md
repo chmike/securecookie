@@ -1,6 +1,41 @@
-# Encode and Decode secure cookie value
+# Encode and Decode secure cookie value on the server side
 
 This package provides functions to encode and decode value for use as secure cookie.
+The user provided value is encrypted and the base64 encoding is stored as value
+transmitted to the user agent. The encoding algorithm is described below.
+
+To intall the cookie package use the instruction:
+
+    go get "github.com/chmike/cookie"
+
+
+## Usage example 
+
+To use this cookie package in your project:
+
+    import "github.com/chmike/cookie"
+
+### Generating a random key
+
+    var key []byte = cookie.GenerateRandomKey()
+
+### Adding a secure cookie to a server response
+
+    cookie := Cookie{
+        Name:     "test",
+		Value:    "my secret cookie value",
+		Path:     "path",
+		Domain:   "example.com",
+		HTTPOnly: true,
+		Secure:   true,
+    }
+ 	err := SetSecure(w, &cookie, key) // w is the http.ResponseWriter
+
+### Decoding a secure cookie value
+
+    value, err := GetSecureValue(r, "test", key) // r is *http.Request
+
+
 
 The encoded value is appended to a given buffer, as well as the decoded value.
 
