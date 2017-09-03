@@ -389,7 +389,7 @@ func Delete(w http.ResponseWriter, c *Params) error {
 	if len(c.Domain) > 0 {
 		maxLen += 9 + len(c.Domain)
 	}
-	maxLen += 30
+	maxLen += 29
 	if c.HTTPOnly {
 		maxLen += 10
 	}
@@ -402,28 +402,23 @@ func Delete(w http.ResponseWriter, c *Params) error {
 	if cap(b) < maxLen {
 		b = make([]byte, 0, maxLen)
 	}
-	var pos int
-	b = b[:maxLen]
-	pos += copy(b[pos:], c.Name)
-	pos += copy(b[pos:], "=")
+	b = append(b[:0], c.Name...)
+	b = append(b, '=')
 	if len(c.Path) > 0 {
-		pos += copy(b[pos:], "; Path=")
-		pos += copy(b[pos:], c.Path)
+		b = append(b, "; Path="...)
+		b = append(b, c.Path...)
 	}
 	if len(c.Domain) > 0 {
-		pos += copy(b[pos:], "; Domain=")
-		pos += copy(b[pos:], c.Domain)
+		b = append(b, "; Domain="...)
+		b = append(b, c.Domain...)
 	}
-	dateInThePast := time.Now().Add(-365 * 24 * time.Hour)
-	pos += copy(b[pos:], "; Expires=")
-	pos = len(dateInThePast.UTC().AppendFormat(b[:pos], "Jan 2 15:04:05 2006"))
+	b = append(b, "; Expires=Jan 2 15:04:05 2006"...)
 	if c.HTTPOnly {
-		pos += copy(b[pos:], "; HttpOnly")
+		b = append(b, "; HttpOnly"...)
 	}
 	if c.Secure {
-		pos += copy(b[pos:], "; Secure")
+		b = append(b, "; Secure"...)
 	}
-	b = b[:pos]
 	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
 	return nil
 }

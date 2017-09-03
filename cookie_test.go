@@ -6,7 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -292,7 +291,6 @@ func TestSetAndGetCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	fmt.Println(recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 
 	// Extract the dropped cookie from the request.
@@ -330,7 +328,7 @@ func TestDeleteCookie(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	cookie := &Params{
 		Name:     "test",
-		Path:     "/path",
+		Path:     "path",
 		Domain:   "example.com",
 		HTTPOnly: true,
 		Secure:   true,
@@ -339,7 +337,6 @@ func TestDeleteCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	fmt.Println(recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 
 	c, err := request.Cookie("test")
