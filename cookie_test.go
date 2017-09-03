@@ -34,7 +34,7 @@ func TestEncodeBase64(t *testing.T) {
 		{in: []byte{3, 200, 254, 1}, out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		buf := make([]byte, 100)
+		buf := make([]byte, 0, 100)
 		out, err := encodeBase64(buf, test.in)
 		if err != nil {
 			if !test.fail {
@@ -100,7 +100,7 @@ func TestEncodedValLen(t *testing.T) {
 		{in: 6, out: 36},
 	}
 	for _, test := range tests {
-		out := EncodedValueLen(test.in)
+		out := encodedValueLen(test.in)
 		if out != test.out {
 			t.Errorf("got %d, expected %d for %d", out, test.out, test.in)
 		}
@@ -123,7 +123,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 		panic(err)
 	}
 	for _, test := range tests {
-		buf := make([]byte, 100)
+		buf := make([]byte, 0, 100)
 		out, err := encodeValue(buf, BytesToString(test.in), key)
 		if (err == nil) == test.encFail {
 			if err == nil {
@@ -187,12 +187,13 @@ func TestEncodeValueErrors(t *testing.T) {
 	if _, err := encodeValue(make([]byte, 27), "", key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	buf := make([]byte, 28)
+	buf := make([]byte, 0, 28)
 	if _, err := encodeValue(buf, "", key[:len(key)-1]); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	forceError = true
 	defer func() { forceError = false }()
+	buf = make([]byte, 0, 28)
 	if _, err := encodeValue(buf, "", key); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -283,7 +284,7 @@ func TestSetAndGetCookie(t *testing.T) {
 		Value:    "expected",
 		Path:     "path",
 		Domain:   "example.com",
-		MaxAge:   10,
+		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
 	}
@@ -291,6 +292,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
+	fmt.Println(recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 
 	// Extract the dropped cookie from the request.

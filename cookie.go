@@ -143,7 +143,7 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := *bPtr
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	maxLen := len(c.Name) + 1 + EncodedValueLen(len(c.Value))
+	maxLen := len(c.Name) + 1 + encodedValueLen(len(c.Value))
 	if len(c.Path) > 0 {
 		maxLen += 7 + len(c.Path)
 	}
@@ -162,84 +162,83 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	if cap(b) < maxLen {
 		b = make([]byte, 0, maxLen+20)
 	}
-	var pos int
-	b = b[:maxLen]
-	pos += copy(b[pos:], c.Name)
-	pos += copy(b[pos:], "=")
-	encVal, err := encodeValue(b[pos:], *(*string)(unsafe.Pointer(&c.Value)), key)
+	b = append(b[:0], c.Name...)
+	b = append(b, '=')
+	tmp, err := encodeValue(b, *(*string)(unsafe.Pointer(&c.Value)), key)
 	if err != nil {
 		return err
 	}
-	pos += len(encVal)
+	b = tmp
 	if len(c.Path) > 0 {
-		pos += copy(b[pos:], "; Path=")
-		pos += copy(b[pos:], c.Path)
+		b = append(b, "; Path="...)
+		b = append(b, c.Path...)
 	}
 	if len(c.Domain) > 0 {
-		pos += copy(b[pos:], "; Domain=")
-		pos += copy(b[pos:], c.Domain)
+		b = append(b, "; Domain="...)
+		b = append(b, c.Domain...)
 	}
 	if c.MaxAge > 0 {
-		pos += copy(b[pos:], "; Max-Age=")
-		pos = len(strconv.AppendInt(b[:pos], int64(c.MaxAge), 10))
+		b = append(b, "; Max-Age="...)
+		b = strconv.AppendInt(b, int64(c.MaxAge), 10)
 	}
 	if c.HTTPOnly {
-		pos += copy(b[pos:], "; HttpOnly")
+		b = append(b, "; HttpOnly"...)
 	}
 	if c.Secure {
-		pos += copy(b[pos:], "; Secure")
+		b = append(b, "; Secure"...)
 	}
-	b = b[:pos]
 	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
 	return nil
 }
 
 var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
 
-// EncodedValueLen return the encoded byte length of the value of valLen bytes.
-func EncodedValueLen(valLen int) int {
+// encodedValueLen return the encoded byte length of the value of valLen bytes.
+func encodedValueLen(valLen int) int {
 	l := valLen + 5 + macLen
 	return ((l-l%3)*8 + 5) / 6
 }
 
-// encodeValue encodes the value in dst overriding it's content.
-// Requires: cap(dst) >= EncodedValLen(len(val))
+// encodeValue appends the encoded value val to dst.
+// Requires: cap(dst) - len(dst) >= EncodedValLen(len(val))
 func encodeValue(dst []byte, val string, key []byte) ([]byte, error) {
-	nRnd := 5 - (len(val)+5+macLen)%3
-	msgLen := len(val) + nRnd
-	if cap(dst) < ((msgLen+macLen)*8+5)/6 {
+	encLen := encodedValueLen(len(val))
+	if cap(dst)-len(dst) < encLen {
 		return nil, errors.New("would overflow")
 	}
-	dst = dst[:msgLen]
-	if _, err := io.ReadFull(rand.Reader, dst[copy(dst, val):]); err != nil || forceError {
+	msgLen := len(val) + 5 + macLen
+	msgLen -= macLen + msgLen%3
+	buf := dst[len(dst) : len(dst)+msgLen]
+	rnd := buf[copy(buf, val):]
+	if _, err := io.ReadFull(rand.Reader, rnd); err != nil || forceError {
 		return nil, err
 	}
-	dst[len(dst)-1] = (dst[len(dst)-1] & 0xFC) | byte(nRnd)%3
+	rnd[len(rnd)-1] = (rnd[len(rnd)-1] & 0xFC) | byte(len(rnd))%3
 	mac := hmac.New(md5.New, key[:macLen])
-	mac.Write(dst)
-	msg := dst
-	dst = mac.Sum(dst)
+	mac.Write(buf)
+	msg := buf
+	buf = mac.Sum(buf)
 	block, err := aes.NewCipher(key[macLen:])
 	if err != nil {
 		return nil, err
 	}
-	iv := dst[msgLen:]
+	iv := buf[msgLen:]
 	block.Encrypt(iv, iv)
 	stream := cipher.NewCTR(block, iv)
 	stream.XORKeyStream(msg, msg)
-	return encodeBase64(dst, dst)
+	return encodeBase64(dst, buf)
 }
 
 // macLen is the byte length of the MAC.
 const macLen = md5.Size
 
-// encodeBase64 encodes src into dst in base64. src and dst may overlabe same slice.
-// Requires: cap(dst) >= (len(src)*8+5)/6 && len(src)%3 == 0.
+// encodeBase64 appends the base64 encoding of src to dst. src and dst may overlap.
+// Requires: cap(dst) - len(dst) >= (len(src)*8+5)/6 && len(src)%3 == 0.
 func encodeBase64(dst, src []byte) ([]byte, error) {
 	if len(src)%3 != 0 {
 		return nil, errors.New("invalid src size")
 	}
-	srcIdx, dstIdx := len(src), (len(src)*8+5)/6
+	srcIdx, dstIdx := len(src), len(dst)+(len(src)*8+5)/6
 	if cap(dst) < dstIdx {
 		return nil, errors.New("would overflow")
 	}
@@ -264,7 +263,7 @@ func encodeBase64(dst, src []byte) ([]byte, error) {
 }
 
 // base64Char converts a byte to Base64 URL encoding character.
-// The two most significant bits of the input byte are ignored.
+// The two most significant bits of b are ignored.
 // See https://tools.ietf.org/html/rfc4648#section-5.
 func base64Char(b byte) byte {
 	b &= 0x3F
