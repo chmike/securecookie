@@ -255,7 +255,7 @@ func TestCheckDomain(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	c := &Cookie{Name: "name", Value: "value"}
+	c := &Params{Name: "name", Value: "value"}
 	if err := Check(c); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -278,7 +278,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	key := make([]byte, KeyLen)
 	// Create a new HTTP Recorder (implements http.ResponseWriter)
 	recorder := httptest.NewRecorder()
-	cookie := &Cookie{
+	cookie := &Params{
 		Name:     "test",
 		Value:    "expected",
 		Path:     "path",

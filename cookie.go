@@ -28,9 +28,9 @@ func GenerateRandomKey() ([]byte, error) {
 	return key, nil
 }
 
-// A Cookie holds the cookie parameters. Use BytesToString() to convert
-// a byte slice value to a string value without allocation and data copy.
-type Cookie struct {
+// An Params holds the cookie parameters. Use BytesToString() to convert
+// a []byte value to a string value without allocation and data copy.
+type Params struct {
 	Name     string // Name of the cookie
 	Value    string // Clear text value to store in the cookie
 	Path     string // Optional : URL path to which the cookie will be returned
@@ -40,7 +40,7 @@ type Cookie struct {
 }
 
 // Check return nil if the cookie fields are all valid.
-func Check(c *Cookie) error {
+func Check(c *Params) error {
 	if err := CheckName(c.Name); err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func checkChars(s string, isValid func(c byte) bool) error {
 
 // SetSecure adds the given cookie to the server's response. The cokie value is
 // encrypted and encoded in base64. Assume that c.Check() has returned nil.
-func SetSecure(w http.ResponseWriter, c *Cookie, key []byte) error {
+func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := *bPtr
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
