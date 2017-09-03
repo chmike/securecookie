@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -31,13 +33,17 @@ func GenerateRandomKey() ([]byte, error) {
 // An Params holds the cookie parameters. Use BytesToString() to convert
 // a []byte value to a string value without allocation and data copy, but
 // it requires that the value is not modified after the conversion.
+// To delete a cookie, set expire in the past and the path and domain
+// that are in the cookie to delete.
 type Params struct {
-	Name     string // Name of the cookie
-	Value    string // Clear text value to store in the cookie
-	Path     string // Optional : URL path to which the cookie will be returned
-	Domain   string // Optional : domain to which the cookie will be returned
-	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
-	Secure   bool   // Optional : cookie can only be send over HTTPS connections
+	Name     string    // Name of the cookie
+	Value    string    // Clear text value to store in the cookie
+	Path     string    // Optional : URL path to which the cookie will be returned
+	Domain   string    // Optional : domain to which the cookie will be returned
+	MaxAge   uint      // Optional : second offset from now, 0 is undefined
+	Expires  time.Time // Optional : explicit expire time
+	HTTPOnly bool      // Optional : disallow access to the cookie by user agent scripts
+	Secure   bool      // Optional : cookie can only be send over HTTPS connections
 }
 
 // Check return nil if the cookie fields are all valid.
@@ -49,6 +55,9 @@ func Check(c *Params) error {
 		return err
 	}
 	if err := CheckDomain(c.Domain); err != nil {
+		return err
+	}
+	if err := CheckExpires(c.Expires); err != nil {
 		return err
 	}
 	return nil
@@ -107,6 +116,16 @@ func CheckDomain(name string) error {
 	return nil
 }
 
+// CheckExpires return an error if the date is not valid.
+func CheckExpires(date time.Time) error {
+	if date != dfltTime {
+		if year := date.Year(); year < 1601 {
+			return fmt.Errorf("year %d is smaller than 1601", year)
+		}
+	}
+	return nil
+}
+
 func isValidNameChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
 		c == '!' || (c >= '#' && c < '(') || c == '*' || c == '+' || c == '-' ||
@@ -130,31 +149,38 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
+var dfltTime = time.Time{}
+
 // SetSecure adds the given cookie to the server's response. The cokie value is
 // encrypted and encoded in base64. Assume that c.Check() has returned nil.
 func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := *bPtr
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	encValLen := EncodedValueLen(len(c.Value))
-	totLen := len(c.Name) + 1 + encValLen
+	maxLen := len(c.Name) + 1 + EncodedValueLen(len(c.Value))
 	if len(c.Path) > 0 {
-		totLen += 7 + len(c.Path)
+		maxLen += 7 + len(c.Path)
 	}
 	if len(c.Domain) > 0 {
-		totLen += 7 + len(c.Domain)
+		maxLen += 9 + len(c.Domain)
+	}
+	if c.MaxAge > 0 {
+		maxLen += 30
+	}
+	if c.Expires != dfltTime {
+		maxLen += 20
 	}
 	if c.HTTPOnly {
-		totLen += 10
+		maxLen += 10
 	}
 	if c.Secure {
-		totLen += 8
+		maxLen += 8
 	}
-	if cap(b) < totLen {
-		b = make([]byte, 0, totLen+20)
+	if cap(b) < maxLen {
+		b = make([]byte, 0, maxLen+20)
 	}
 	var pos int
-	b = b[:totLen]
+	b = b[:maxLen]
 	pos += copy(b[pos:], c.Name)
 	pos += copy(b[pos:], "=")
 	encVal, err := encodeValue(b[pos:], *(*string)(unsafe.Pointer(&c.Value)), key)
@@ -170,12 +196,21 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 		pos += copy(b[pos:], "; Domain=")
 		pos += copy(b[pos:], c.Domain)
 	}
+	if c.MaxAge > 0 {
+		pos += copy(b[pos:], "; Max-Age=")
+		pos = len(strconv.AppendInt(b[:pos], int64(c.MaxAge), 10))
+	}
+	if c.Expires != dfltTime {
+		b = append(b, "; Expires="...)
+		b = c.Expires.UTC().AppendFormat(b, "Jan _2 15:_4:_5 2006")
+	}
 	if c.HTTPOnly {
 		pos += copy(b[pos:], "; HttpOnly")
 	}
 	if c.Secure {
 		pos += copy(b[pos:], "; Secure")
 	}
+	b = b[:pos]
 	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
 	return nil
 }
