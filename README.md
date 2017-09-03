@@ -5,33 +5,40 @@ The encoding algorithm is described below.
 
 To intall or update the cookie package use the instruction:
 
-    go get -u "github.com/chmike/cookie"
+``` Bash
+go get -u "github.com/chmike/cookie"
+```
 
 ## Usage example 
 
 To use this cookie package in your server, add the following import.
 
-    import "github.com/chmike/cookie"
-
+``` Go
+import "github.com/chmike/cookie"
+```
 ### Generating a random key
 
 It is strongly recommended to generate the random key with the following function.
 Save the key in a file using hex.EncodeToString() and restrict access to that file.
 
-    var key []byte = cookie.GenerateRandomKey()
+``` Go
+var key []byte = cookie.GenerateRandomKey()
+```
 
 ### Adding a secure cookie to a server response
 
-    params := cookie.Params{
-        Name:     "test",
-		Value:    "my secret cookie value",
-		Path:     "path",
-		Domain:   "example.com",
-        Expires:  time.Now().Add(24 * time.Hour),
-		HTTPOnly: true,
-		Secure:   true,
-    }
- 	err := cookie.SetSecure(w, &params, key) // w is the http.ResponseWriter
+``` Go
+params := cookie.Params{
+    Name:     "test",
+    Value:    "my secret cookie value",
+    Path:     "path",
+    Domain:   "example.com",
+    Expires:  time.Now().Add(24 * time.Hour),
+    HTTPOnly: true,
+    Secure:   true,
+}
+err := cookie.SetSecure(w, &params, key) // w is the http.ResponseWriter
+```
 
 While the Value field is of type string, a []byte converted to a string with
 the function cookie.BytesToString() may also be assigned to it. This function 
@@ -40,7 +47,9 @@ modified after the conversion.
 
 ### Decoding a secure cookie value
 
-    value, err := cookie.GetSecureValue(r, "test", key) // r is *http.Request
+``` Go
+value, err := cookie.GetSecureValue(r, "test", key) // r is *http.Request
+```
 
 The returned value is of type []byte, but it can be efficiently converted
 to a string with the function cookie.BytesToString(). The key must be the
@@ -48,17 +57,19 @@ same key used the set the secure cookie.
 
 ### Deleting a cookie
 
-    params := cookie.Params{
-        Name:       "test",
-		// Value:    ignored
-		Path:       "path",
-		Domain:     "example.com",
-        // MaxAge:   ignored
-        // Expires:  ignored
-		HTTPOnly:   true, // Optional, but recommended
-		Secure:     true, // Optional, but recommended
-    }
-    err := cookie.Delete(w, &params)
+``` Go
+params := cookie.Params{
+    Name:       "test",
+    // Value:    ignored
+    Path:       "path",
+    Domain:     "example.com",
+    // MaxAge:   ignored
+    // Expires:  ignored
+    HTTPOnly:   true, // Optional, but recommended
+    Secure:     true, // Optional, but recommended
+}
+err := cookie.Delete(w, &params)
+```
 
 To delete a cookie, the specification requires that we provide the name,
 the path and domain value, and an Expires value in the past. The
