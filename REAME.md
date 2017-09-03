@@ -1,4 +1,4 @@
-# Encode and Decode secure cookie value on the server side
+# Encode and Decode secure cookies
 
 This package provides functions to encode and decode cookie values for use as secure cookie.
 The encoding algorithm is described below.
