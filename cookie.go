@@ -201,8 +201,8 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 		pos = len(strconv.AppendInt(b[:pos], int64(c.MaxAge), 10))
 	}
 	if c.Expires != dfltTime {
-		b = append(b, "; Expires="...)
-		b = c.Expires.UTC().AppendFormat(b, "Jan _2 15:_4:_5 2006")
+		pos += copy(b[pos:], "; Expires=")
+		pos = len(c.Expires.UTC().AppendFormat(b[:pos], "Jan 2 15:04:05 2006"))
 	}
 	if c.HTTPOnly {
 		pos += copy(b[pos:], "; HttpOnly")
@@ -396,4 +396,56 @@ func BytesToString(bs []byte) string {
 	// This is copied from runtime. It relies on the string
 	// header being a prefix of the slice header!
 	return *(*string)(unsafe.Pointer(&bs))
+}
+
+// Delete send a request to the remote user agent to delete the given
+// cookie. Don't rely on the assumption that the user agent will delete
+// the cookie. This function will at least clear the value.
+// The specification requires that the cookie name, it's path and domain
+// are provided. The Value, the Expires, MaxAge
+func Delete(w http.ResponseWriter, c *Params) error {
+	maxLen := len(c.Name) + 1
+	if len(c.Path) > 0 {
+		maxLen += 7 + len(c.Path)
+	}
+	if len(c.Domain) > 0 {
+		maxLen += 9 + len(c.Domain)
+	}
+	maxLen += 30
+	if c.HTTPOnly {
+		maxLen += 10
+	}
+	if c.Secure {
+		maxLen += 8
+	}
+	bPtr := bufPool.Get().(*[]byte)
+	b := *bPtr
+	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
+	if cap(b) < maxLen {
+		b = make([]byte, 0, maxLen)
+	}
+	var pos int
+	b = b[:maxLen]
+	pos += copy(b[pos:], c.Name)
+	pos += copy(b[pos:], "=")
+	if len(c.Path) > 0 {
+		pos += copy(b[pos:], "; Path=")
+		pos += copy(b[pos:], c.Path)
+	}
+	if len(c.Domain) > 0 {
+		pos += copy(b[pos:], "; Domain=")
+		pos += copy(b[pos:], c.Domain)
+	}
+	dateInThePast := time.Now().Add(-365 * 24 * time.Hour)
+	pos += copy(b[pos:], "; Expires=")
+	pos = len(dateInThePast.UTC().AppendFormat(b[:pos], "Jan 2 15:04:05 2006"))
+	if c.HTTPOnly {
+		pos += copy(b[pos:], "; HttpOnly")
+	}
+	if c.Secure {
+		pos += copy(b[pos:], "; Secure")
+	}
+	b = b[:pos]
+	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
+	return nil
 }

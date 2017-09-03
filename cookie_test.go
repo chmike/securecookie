@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -321,6 +322,46 @@ func TestSetAndGetCookie(t *testing.T) {
 		t.Errorf("unexpected nil error")
 	} else if value != nil {
 		t.Errorf("unexpected nil value")
+	}
+
+	// Create a new HTTP Recorder (implements http.ResponseWriter)
+	recorder = httptest.NewRecorder()
+	err = SetSecure(recorder, cookie, key[:len(key)-1])
+	if err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestDeleteCookie(t *testing.T) {
+	// purge bufPool
+	bPtr := bufPool.Get().(*[]byte)
+	if len(*bPtr) > 64 {
+		bPtr = bufPool.Get().(*[]byte)
+	}
+	key := make([]byte, KeyLen)
+	// Create a new HTTP Recorder (implements http.ResponseWriter)
+	recorder := httptest.NewRecorder()
+	cookie := &Params{
+		Name:     "test",
+		Path:     "/path",
+		Domain:   "example.com",
+		HTTPOnly: true,
+		Secure:   true,
+	}
+	err := Delete(recorder, cookie)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	fmt.Println(recorder.HeaderMap["Set-Cookie"])
+	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+
+	c, err := request.Cookie("test")
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	} else {
+		if len(c.Value) != 0 {
+			t.Errorf("got value '%s', expected empty string", c.Value)
+		}
 	}
 
 	// Create a new HTTP Recorder (implements http.ResponseWriter)
