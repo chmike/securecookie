@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestGenerateKeyErrors(t *testing.T) {
@@ -256,23 +255,10 @@ func TestCheckDomain(t *testing.T) {
 	}
 }
 
-func TestCheckExpires(t *testing.T) {
-	if err := CheckExpires(time.Now()); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := CheckExpires(dfltTime.Add(time.Hour)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
 func TestCheck(t *testing.T) {
 	c := &Params{Name: "name", Value: "value"}
 	if err := Check(c); err != nil {
 		t.Errorf("unexpected error: %s", err)
-	}
-	c.Expires = dfltTime.Add(time.Hour)
-	if err := Check(c); err == nil {
-		t.Errorf("unexpected nil error")
 	}
 	c.Domain = "?"
 	if err := Check(c); err == nil {
@@ -298,7 +284,6 @@ func TestSetAndGetCookie(t *testing.T) {
 		Path:     "path",
 		Domain:   "example.com",
 		MaxAge:   10,
-		Expires:  time.Now().Add(24 * time.Hour),
 		HTTPOnly: true,
 		Secure:   true,
 	}

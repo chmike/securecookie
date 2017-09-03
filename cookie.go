@@ -36,14 +36,13 @@ func GenerateRandomKey() ([]byte, error) {
 // To delete a cookie, set expire in the past and the path and domain
 // that are in the cookie to delete.
 type Params struct {
-	Name     string    // Name of the cookie
-	Value    string    // Clear text value to store in the cookie
-	Path     string    // Optional : URL path to which the cookie will be returned
-	Domain   string    // Optional : domain to which the cookie will be returned
-	MaxAge   uint      // Optional : second offset from now, 0 is undefined
-	Expires  time.Time // Optional : explicit expire time
-	HTTPOnly bool      // Optional : disallow access to the cookie by user agent scripts
-	Secure   bool      // Optional : cookie can only be send over HTTPS connections
+	Name     string // Name of the cookie
+	Value    string // Clear text value to store in the cookie
+	Path     string // Optional : URL path to which the cookie will be returned
+	Domain   string // Optional : domain to which the cookie will be returned
+	MaxAge   uint   // Optional : second offset from now, 0 is undefined
+	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
+	Secure   bool   // Optional : cookie can only be send over HTTPS connections
 }
 
 // Check return nil if the cookie fields are all valid.
@@ -55,9 +54,6 @@ func Check(c *Params) error {
 		return err
 	}
 	if err := CheckDomain(c.Domain); err != nil {
-		return err
-	}
-	if err := CheckExpires(c.Expires); err != nil {
 		return err
 	}
 	return nil
@@ -116,16 +112,6 @@ func CheckDomain(name string) error {
 	return nil
 }
 
-// CheckExpires return an error if the date is not valid.
-func CheckExpires(date time.Time) error {
-	if date != dfltTime {
-		if year := date.Year(); year < 1601 {
-			return fmt.Errorf("year %d is smaller than 1601", year)
-		}
-	}
-	return nil
-}
-
 func isValidNameChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
 		c == '!' || (c >= '#' && c < '(') || c == '*' || c == '+' || c == '-' ||
@@ -167,9 +153,6 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	if c.MaxAge > 0 {
 		maxLen += 30
 	}
-	if c.Expires != dfltTime {
-		maxLen += 20
-	}
 	if c.HTTPOnly {
 		maxLen += 10
 	}
@@ -199,10 +182,6 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	if c.MaxAge > 0 {
 		pos += copy(b[pos:], "; Max-Age=")
 		pos = len(strconv.AppendInt(b[:pos], int64(c.MaxAge), 10))
-	}
-	if c.Expires != dfltTime {
-		pos += copy(b[pos:], "; Expires=")
-		pos = len(c.Expires.UTC().AppendFormat(b[:pos], "Jan 2 15:04:05 2006"))
 	}
 	if c.HTTPOnly {
 		pos += copy(b[pos:], "; HttpOnly")
