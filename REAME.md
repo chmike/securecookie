@@ -1,99 +1,97 @@
 # Encode and Decode secure cookie value on the server side
 
-This package provides functions to encode and decode value for use as secure cookie.
-The user provided value is encrypted and the base64 encoding is stored as value
-transmitted to the user agent. The encoding algorithm is described below.
+This package provides functions to encode and decode cookie values for use as secure cookie.
+The encoding algorithm is described below.
 
-To intall the cookie package use the instruction:
+To intall or update the cookie package use the instruction:
 
-    go get "github.com/chmike/cookie"
-
+    go get -u "github.com/chmike/cookie"
 
 ## Usage example 
 
-To use this cookie package in your project:
+To use this cookie package in your server, add the following import.
 
     import "github.com/chmike/cookie"
 
 ### Generating a random key
 
+It is strongly recommended to generate the random key with the following function.
+Save the key in a file using hex.EncodeToString() and restrict access to that file.
+
     var key []byte = cookie.GenerateRandomKey()
 
 ### Adding a secure cookie to a server response
 
-    cookie := Cookie{
+    params := cookie.Params{
         Name:     "test",
 		Value:    "my secret cookie value",
 		Path:     "path",
 		Domain:   "example.com",
+        Expires:  time.Now().Add(24 * time.Hour),
 		HTTPOnly: true,
 		Secure:   true,
     }
- 	err := SetSecure(w, &cookie, key) // w is the http.ResponseWriter
+ 	err := cookie.SetSecure(w, &params, key) // w is the http.ResponseWriter
+
+While the Value field is of type string, a []byte converted to a string with
+the function cookie.BytesToString() may also be assigned to it. This function 
+avoids the allocation and copy overhead, but it requires that the value is not
+modified after the conversion.
 
 ### Decoding a secure cookie value
 
-    value, err := GetSecureValue(r, "test", key) // r is *http.Request
+    value, err := cookie.GetSecureValue(r, "test", key) // r is *http.Request
 
+The returned value is of type []byte, but it can be efficiently converted
+to a string with the function cookie.BytesToString(). The key must be the
+same key used the set the secure cookie.
 
+### Deleting a cookie
 
-The encoded value is appended to a given buffer, as well as the decoded value.
-
-The encoding is designed to be compact and applies the following pattern : 
-
-    clear text: [value][rnd][mac]
-
-The valus is a copy of the input bytes. rnd is a sequence of 3 to 5 random bytes. 
-The number is picked so that the length of the clear text is a multiple of 3. This
-simplifies the base64 encoding and decoding, and avoids the need of padding. The
-mac is a md5 hmac. The number of random bytes is encoded in the two less significant 
-bits of the last random byte. 0 -> 3 random bytes, 1 -> 4, 2 -> 5.
-
-The mac is first encrypted and the result is used as iv for encrypting the rest of
-the clear text with aes and CTR block chaining.
-
-The use of the encrypted mac as iv ensures that it is a randomized value. The random
-bytes ensure that a same value won't yield an identical cipher text. 
-
-Decoding the value inverse these operations. Multiple validity checs are performed.
-
-
-SetSecureCookie() example:
-
-    func SetSecureCookie(w http.ResponseWriter, c *http.Cookie, key []byte) error {
-        buf := make([]byte, 0, 512) // better use sync.Pool
-        buf = append(buf, "Auth="...)
-        buf, err := AppendEncodedStringValue(buf, c.Value, key)
-        if err != nil {
-            return err
-        }
-        if c.Path != "" {
-            buf = append(buf, "; Path="...)
-            buf = append(buf, c.Path...)
-        }
-        if c.Domain != "" {
-            buf = append(buf, "; Domain="...)
-            buf = append(buf, c.Domain...)
-        }
-        if c.HttpOnly {
-            buf = append(buf, "; HttpOnly"...)
-        }
-        if c.Secure {
-            buf = append(buf, "; Secure"...)
-        }
-        w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&buf)))
-        return nil
+    params := cookie.Params{
+        Name:       "test",
+		// Value:    ignored
+		Path:       "path",
+		Domain:     "example.com",
+        // MaxAge:   ignored
+        // Expires:  ignored
+		HTTPOnly:   true, // Optional, but recommended
+		Secure:     true, // Optional, but recommended
     }
+    err := cookie.Delete(w, &params)
 
-To decode the value use the DecodeStringValue function. 
+To delete a cookie, the specification requires that we provide the name,
+the path and domain value, and an Expires value in the past. The
+Delete function will generate that expires value for your.
 
-    func GetSecureCookieValue(r http.Request, name string, key []byte) (string, error) {
-        c, err := r.Cookie(name)
-        if err != nil {
-            return "", err
-        }
-        return DecodeStringValue(c.Value, key)
-    }
+The actual values in the Value, MaxAge and Expires fields of the Params
+struct are ignored.    
 
-If there is a validity time limit for the cookie, store them in the value because the user agent
-can't be trusted. The secured value may be a string (e.g. JSON) or a byte slice (e.g.Gob).
+## Value encoding 
+
+The clear text is the concatenation of the value bytes, 3 to 5 random bytes,
+and the MAC of 16 bytes. 
+
+    clear text = [value][rnd][mac]
+
+The number of random bytes is picked so that the clear text length is a
+multiple of 3 to simplifies the base64 encoding. The two less significant
+bits of the last random byte encode the number of random bytes: 0->3, 
+1->4 and 2->5. 3 is invalid. 
+
+The mac is an hmac(md5) computed over the value and random bytes. While 
+it is easy to forge an md5 collision, forging a valid hmac(md5) is harder 
+because of the key. It is even harder if the MAC is encrypted. 
+
+The key is 32 byte long. The first 16 bytes are used as hmac key, the last
+16 bytes are used as encryption key.  
+
+To encrypt the clear text, the MAC is first encrypted using AES128. The 
+length of the MAC is exactly the length of an AES block. The encrypted 
+MAC is then used as IV, and the value and random bytes are encrypted using
+CTR with AES128.
+
+The resulting ciphered text is then encoded in base64 and stored as value in
+the cookie. 
+
+These operations are reversed to decrypt the value.
