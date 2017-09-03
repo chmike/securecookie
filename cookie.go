@@ -29,7 +29,8 @@ func GenerateRandomKey() ([]byte, error) {
 }
 
 // An Params holds the cookie parameters. Use BytesToString() to convert
-// a []byte value to a string value without allocation and data copy.
+// a []byte value to a string value without allocation and data copy, but
+// it requires that the value is not modified after the conversion.
 type Params struct {
 	Name     string // Name of the cookie
 	Value    string // Clear text value to store in the cookie
