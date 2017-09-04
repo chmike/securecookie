@@ -2,27 +2,25 @@
 
 This package provides functions to encode and decode secure cookie values.
 
-A secure cookie has its value encryted with a MAC so that the value can 
-be autenticated when decoded. The encryption and authentication allows
-to stone sensible information in the cookie that can be accessed by a
-simple decryption. 
+A secure cookie has its value encryted along with a MAC so that the value
+can be autenticated when decrypted. This allows to store sensible 
+informations in the cookie that can be accessed by decoding it.
 
-It it then possible to store the sequentially assigned user record ID, 
-the user role and and expires date. The remote user wont be able to see
-or modify that information.
+For instance, it is then possible to store the sequentially assigned user 
+record ID, the user role and an value expire date. The remote user won't 
+be able to see or modify that information.
 
-The main benefit is that this information becomes available in the backend
+The main benefit is that the information becomes available in the backend
 request handler without accessing a shared and persistent storage. This 
 avoids a significant source of latency when the server is loaded. 
 
-Another benefit is that some reguest handlers on the server side may 
-become fully stateless since the state is safely stored in the cookie 
-and transmitted with each request.   
-
+Another benefit is that some request handlers may become fully stateless
+since the state can be safely stored in the cookie and transmitted with 
+each request.
 
 **Warning:** Because this package impacts security of web applications, 
 it is critical and still need reviews to be production ready. 
-Feedback is welcomed. 
+Feedback is welcome. 
 
 ## Installation
 
