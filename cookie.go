@@ -143,32 +143,12 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := *bPtr
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	maxLen := len(c.Name) + 1 + encodedValueLen(len(c.Value))
-	if len(c.Path) > 0 {
-		maxLen += 7 + len(c.Path)
-	}
-	if len(c.Domain) > 0 {
-		maxLen += 9 + len(c.Domain)
-	}
-	if c.MaxAge > 0 {
-		maxLen += 30
-	}
-	if c.HTTPOnly {
-		maxLen += 10
-	}
-	if c.Secure {
-		maxLen += 8
-	}
-	if cap(b) < maxLen {
-		b = make([]byte, 0, maxLen+20)
-	}
 	b = append(b[:0], c.Name...)
 	b = append(b, '=')
-	tmp, err := encodeValue(b, *(*string)(unsafe.Pointer(&c.Value)), key)
+	b, err := appendEncodedValue(b, *(*string)(unsafe.Pointer(&c.Value)), key)
 	if err != nil {
 		return err
 	}
-	b = tmp
 	if len(c.Path) > 0 {
 		b = append(b, "; Path="...)
 		b = append(b, c.Path...)
@@ -199,19 +179,22 @@ func encodedValueLen(valLen int) int {
 	return ((l-l%3)*8 + 5) / 6
 }
 
-// encodeValue appends the encoded value val to dst.
-// Requires: cap(dst) - len(dst) >= EncodedValLen(len(val))
-func encodeValue(dst []byte, val string, key []byte) ([]byte, error) {
+// appendEncodedValue appends the encoded value val to dst.
+// dst is allocated or grown if it is nil or too small.
+// Return dst and the error if any.
+func appendEncodedValue(dst []byte, val string, key []byte) ([]byte, error) {
 	encLen := encodedValueLen(len(val))
 	if cap(dst)-len(dst) < encLen {
-		return nil, errors.New("would overflow")
+		tmp := make([]byte, len(dst), getBufSize(len(dst)+encLen))
+		copy(tmp, dst)
+		dst = tmp
 	}
 	msgLen := len(val) + 5 + macLen
 	msgLen -= macLen + msgLen%3
 	buf := dst[len(dst) : len(dst)+msgLen]
 	rnd := buf[copy(buf, val):]
 	if _, err := io.ReadFull(rand.Reader, rnd); err != nil || forceError {
-		return nil, err
+		return dst, err
 	}
 	rnd[len(rnd)-1] = (rnd[len(rnd)-1] & 0xFC) | byte(len(rnd))%3
 	mac := hmac.New(md5.New, key[:macLen])
@@ -220,27 +203,44 @@ func encodeValue(dst []byte, val string, key []byte) ([]byte, error) {
 	buf = mac.Sum(buf)
 	block, err := aes.NewCipher(key[macLen:])
 	if err != nil {
-		return nil, err
+		return dst, err
 	}
 	iv := buf[msgLen:]
 	block.Encrypt(iv, iv)
 	stream := cipher.NewCTR(block, iv)
 	stream.XORKeyStream(msg, msg)
-	return encodeBase64(dst, buf)
+	return appendEncodedBase64(dst, buf)
+}
+
+// getBufSize return the smallest power 2 bigger or equal to v.
+// See https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+func getBufSize(v int) int {
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v |= v >> 32
+	v++
+	return v
 }
 
 // macLen is the byte length of the MAC.
 const macLen = md5.Size
 
-// encodeBase64 appends the base64 encoding of src to dst. src and dst may overlap.
-// Requires: cap(dst) - len(dst) >= (len(src)*8+5)/6 && len(src)%3 == 0.
-func encodeBase64(dst, src []byte) ([]byte, error) {
+// appendEncodedBase64 appends the base64 encoding of src to dst.
+// dst is allocated or grown if it is nil or too small.
+// Return dst and the error if any. Requires len(src)%3 == 0.
+func appendEncodedBase64(dst, src []byte) ([]byte, error) {
 	if len(src)%3 != 0 {
-		return nil, errors.New("invalid src size")
+		return dst, errors.New("invalid src size")
 	}
 	srcIdx, dstIdx := len(src), len(dst)+(len(src)*8+5)/6
 	if cap(dst) < dstIdx {
-		return nil, errors.New("would overflow")
+		tmp := make([]byte, len(dst), getBufSize(dstIdx))
+		copy(tmp, dst)
+		dst = tmp
 	}
 	dst = dst[:dstIdx]
 	for srcIdx > 0 {
@@ -279,28 +279,34 @@ func base64Char(b byte) byte {
 	return '_' // b == 63
 }
 
-// GetSecureValue get decoded value of cookie named name.
+// GetSecureValue append the decoded value of the cookie named name to dst.
+// dst is allocated or grown if it is nil or too small.
+// Return dst and the error if any.
 // Use BytesToString() if you need a string instead of a byte slice.
-func GetSecureValue(r *http.Request, name string, key []byte) ([]byte, error) {
+func GetSecureValue(dst []byte, r *http.Request, name string, key []byte) ([]byte, error) {
 	c, err := r.Cookie(name)
 	if err != nil {
 		return nil, err
 	}
-	return decodeValue(c.Value, key)
+	return appendDecodedValue(dst, c.Value, key)
 }
 
-// decodeValue decode the encoded cookie value.
-// Requires: cap(dst) >= (len(src)*6)/8 && len(src)%4 == 0.
-func decodeValue(val string, key []byte) ([]byte, error) {
-	if len(val) < 28 {
-		return nil, errors.New("invalid value length")
+// appendDecodedValue decode encVal and append the result to dst.
+// dst is allocated or grown if it is nil or too small.
+// Return dst and the error if any. Requires len(src)%4 == 0.
+// Requires: len(encVal) >= 28 && len(src)%4 == 0.
+func appendDecodedValue(dst []byte, encVal string, key []byte) ([]byte, error) {
+	if len(encVal) < 28 {
+		return dst, errors.New("invalid value length")
 	}
 	if len(key) < macLen {
-		return nil, errors.New("invalid key")
+		return dst, errors.New("invalid key")
 	}
-	b := make([]byte, (len(val)*6)/8)
-	if _, err := decodeBase64(b, val); err != nil {
-		return nil, err
+	valPos := len(dst)
+	b, err := appendDecodedBase64(dst, encVal)
+	dst, b = b[:valPos], b[valPos:]
+	if err != nil {
+		return dst, err
 	}
 	block, err := aes.NewCipher(key[macLen:])
 	if err != nil {
@@ -320,21 +326,25 @@ func decodeValue(val string, key []byte) ([]byte, error) {
 	if nRnd == 6 {
 		return nil, errors.New("invalid number of random bytes")
 	}
-	return msg[:msgLen-nRnd], nil
+	return dst[:valPos+msgLen-nRnd], nil
 }
 
-// decodeBase64 decode src into dst. src and dst may be the same slice.
-// Requires len(src)%4 == 0 && cap(dst) >= (len(src)*6)/8.
-func decodeBase64(dst []byte, src string) ([]byte, error) {
+// appendDecodedBase64 base64 decode src and append the result to dst.
+// dst is allocated or grown if it is nil or too small.
+// Return dst and the error if any. Requires len(src)%4 == 0.
+func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
 	if len(src)%4 != 0 {
-		return nil, errors.New("invalid src size")
+		return dst, errors.New("invalid src size")
 	}
 	decLen := (len(src) * 6) / 8
-	if cap(dst) < decLen {
-		return nil, errors.New("would overflow")
+	if cap(dst)-len(dst) < decLen {
+		tmp := make([]byte, len(dst), getBufSize(len(dst)+decLen))
+		copy(tmp, dst)
+		dst = tmp
 	}
-	var srcIdx, dstIdx int
-	dst = dst[:decLen]
+	var srcIdx int
+	dstIdx := len(dst)
+	dst = dst[:len(dst)+decLen]
 	for srcIdx < len(src) {
 		var v uint64
 		for i := 0; i < 4; i++ {

@@ -33,8 +33,7 @@ func TestEncodeBase64(t *testing.T) {
 		{in: []byte{3, 200, 254, 1}, out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		buf := make([]byte, 0, 100)
-		out, err := encodeBase64(buf, test.in)
+		out, err := appendEncodedBase64(nil, test.in)
 		if err != nil {
 			if !test.fail {
 				t.Errorf("got error '%s', expected no error", err)
@@ -45,10 +44,6 @@ func TestEncodeBase64(t *testing.T) {
 		if test.fail == (err != nil) && !bytes.Equal(out, test.out) {
 			t.Errorf("got output %v, expected %v for input %v", out, test.out, test.in)
 		}
-	}
-	_, err := encodeBase64(nil, []byte{0, 0, 0})
-	if err == nil {
-		t.Errorf("unexpected nil error")
 	}
 }
 
@@ -67,8 +62,7 @@ func TestDecodeBase64(t *testing.T) {
 		{in: " A8j", out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		buf := make([]byte, 100)
-		out, err := decodeBase64(buf, test.in)
+		out, err := appendDecodedBase64(nil, test.in)
 		if err != nil {
 			if !test.fail {
 				t.Errorf("got error '%s', expected no error", err)
@@ -79,10 +73,6 @@ func TestDecodeBase64(t *testing.T) {
 		if test.fail == (err != nil) && !bytes.Equal(out, test.out) {
 			t.Errorf("got output %v, expected %v for input %v", out, test.out, test.in)
 		}
-	}
-	_, err := decodeBase64(nil, "AAAA")
-	if err == nil {
-		t.Errorf("unexpected nil error")
 	}
 }
 
@@ -122,8 +112,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 		panic(err)
 	}
 	for _, test := range tests {
-		buf := make([]byte, 0, 100)
-		out, err := encodeValue(buf, BytesToString(test.in), key)
+		out, err := appendEncodedValue(nil, BytesToString(test.in), key)
 		if (err == nil) == test.encFail {
 			if err == nil {
 				t.Errorf("got nil encoding error, expected error for in: %+v", test.in)
@@ -131,7 +120,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := decodeValue(BytesToString(out), key)
+			in, err := appendDecodedValue(nil, BytesToString(out), key)
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -147,21 +136,21 @@ func TestEncodeDecodeValue(t *testing.T) {
 	}
 }
 
-func TestDecodeValueErrors(t *testing.T) {
-	if _, err := decodeValue("", nil); err == nil {
+func TestAppendDecodedValueErrors(t *testing.T) {
+	if _, err := appendDecodedValue(nil, "", nil); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", nil); err == nil {
+	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", nil); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	key := make([]byte, 32)
-	if _, err := decodeValue(" AAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := appendDecodedValue(nil, " AAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key[:len(key)-1]); err == nil {
+	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key[:len(key)-1]); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf := make([]byte, 5, 32)
@@ -175,25 +164,22 @@ func TestDecodeValueErrors(t *testing.T) {
 	block.Encrypt(iv, iv)
 	stream := cipher.NewCTR(block, iv)
 	stream.XORKeyStream(buf[:ivPos], buf[:ivPos])
-	buf, _ = encodeBase64(buf[:0], buf)
-	if _, err := decodeValue(BytesToString(buf), key); err == nil {
+	buf, _ = appendEncodedBase64(buf[:0], buf)
+	if _, err := appendDecodedValue(nil, BytesToString(buf), key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 }
 
 func TestEncodeValueErrors(t *testing.T) {
 	key := make([]byte, 32)
-	if _, err := encodeValue(make([]byte, 27), "", key); err == nil {
-		t.Errorf("unexpected nil error")
-	}
 	buf := make([]byte, 0, 28)
-	if _, err := encodeValue(buf, "", key[:len(key)-1]); err == nil {
+	if _, err := appendEncodedValue(buf, "", key[:len(key)-1]); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	forceError = true
 	defer func() { forceError = false }()
 	buf = make([]byte, 0, 28)
-	if _, err := encodeValue(buf, "", key); err != nil {
+	if _, err := appendEncodedValue(buf, "", key); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
@@ -294,7 +280,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 
 	// Extract the dropped cookie from the request.
-	value, err := GetSecureValue(request, "test", key)
+	value, err := GetSecureValue(nil, request, "test", key)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	} else if BytesToString(value) != cookie.Value {
@@ -302,7 +288,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	}
 
 	// Extract the dropped cookie from the request.
-	value, err = GetSecureValue(request, "xxx", key)
+	value, err = GetSecureValue(nil, request, "xxx", key)
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	} else if value != nil {
