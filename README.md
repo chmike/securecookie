@@ -1,23 +1,28 @@
 # Encode and Decode secure cookies
 
-This package provides functions to encode and decode cookie values for use 
-as secure cookie. 
+This package provides functions to encode and decode secure cookie values.
 
-A secure cookie encapsulate sensible informations that can be accessed in
-the backend by a cookie value decription.
+A secure cookie has its value encryted with a MAC so that the value can 
+be autenticated when decoded. The encryption and authentication allows
+to stone sensible information in the cookie that can be accessed by a
+simple decryption. 
 
-The alternate solution is to store a long random byte sequence as value in 
-the cookie. That value may then be used as key to retrieve the sensible
-information from a local persistent storage. Accessing this storage may 
-introduce significant latency when the system is loaded. 
+It it then possible to store the sequentially assigned user record ID, 
+the user role and and expires date. The remote user wont be able to see
+or modify that information.
 
-A secure cookie allows to store a compact user ID, the user role, an
-expires limit for instance. It is then possible to validate the request
-with no access to the shared storage. Compact user ID allows to use a 
-smaller index and faster lookups. 
+The main benefit is that this information becomes available in the backend
+request handler without accessing a shared and persistent storage. This 
+avoids a significant source of latency when the server is loaded. 
 
-**Warning:** Because this package impacts security of a web application, it 
-still need reviews to be production ready. Feedback is welcomed. 
+Another benefit is that some reguest handlers on the server side may 
+become fully stateless since the state is safely stored in the cookie 
+and transmitted with each request.   
+
+
+**Warning:** Because this package impacts security of web applications, 
+it is critical and still need reviews to be production ready. 
+Feedback is welcomed. 
 
 ## Installation
 
