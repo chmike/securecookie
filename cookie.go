@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"time"
-	"unsafe"
 )
 
 // KeyLen is the byte length of the key.
@@ -36,31 +34,54 @@ func GenerateRandomKey() ([]byte, error) {
 // To delete a cookie, set expire in the past and the path and domain
 // that are in the cookie to delete.
 type Params struct {
-	Name     string // Name of the cookie
-	Value    string // Clear text value to store in the cookie
 	Path     string // Optional : URL path to which the cookie will be returned
 	Domain   string // Optional : domain to which the cookie will be returned
-	MaxAge   uint   // Optional : second offset from now, 0 is undefined
+	MaxAge   int    // Optional : time offset in seconds from now, must be > 0
 	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
 	Secure   bool   // Optional : cookie can only be send over HTTPS connections
 }
 
-// Check return nil if the cookie fields are all valid.
-func Check(c *Params) error {
-	if err := CheckName(c.Name); err != nil {
-		return err
-	}
-	if err := CheckPath(c.Path); err != nil {
-		return err
-	}
-	if err := CheckDomain(c.Domain); err != nil {
-		return err
-	}
-	return nil
+// Obj is a validated cookie object.
+type Obj struct {
+	key      []byte
+	name     string
+	path     string
+	domain   string
+	maxAge   int
+	httpOnly bool
+	secure   bool
 }
 
-// CheckName return an error if the cookie name is invalid.
-func CheckName(name string) error {
+// New instantiate a validated cookie parameter field set with an associated key.
+func New(key []byte, name string, p Params) (*Obj, error) {
+	if len(key) != KeyLen {
+		return nil, fmt.Errorf("key length is %d, expected %d", len(key), KeyLen)
+	}
+	if err := checkName(name); err != nil {
+		return nil, err
+	}
+	if err := checkPath(p.Path); err != nil {
+		return nil, err
+	}
+	if err := checkDomain(p.Domain); err != nil {
+		return nil, err
+	}
+	if p.MaxAge < 0 {
+		return nil, errors.New("max age can't be negative")
+	}
+	return &Obj{
+		key:      key,
+		name:     name,
+		path:     p.Path,
+		domain:   p.Domain,
+		maxAge:   p.MaxAge,
+		httpOnly: p.HTTPOnly,
+		secure:   p.Secure,
+	}, nil
+}
+
+// checkName return an error if the cookie name is invalid.
+func checkName(name string) error {
 	if len(name) == 0 {
 		return errors.New("cookie name: empty value")
 	}
@@ -70,18 +91,18 @@ func CheckName(name string) error {
 	return nil
 }
 
-// CheckPath return an error if the cookie path is invalid
-func CheckPath(path string) error {
+// checkPath return an error if the cookie path is invalid
+func checkPath(path string) error {
 	if err := checkChars(path, isValidPathChar); err != nil {
 		return fmt.Errorf("cookie path: %s", err)
 	}
 	return nil
 }
 
-// CheckDomain return an error if the domain name is not valid.
+// checkDomain return an error if the domain name is not valid.
 // See https://tools.ietf.org/html/rfc1034#section-3.5 and
 // https://tools.ietf.org/html/rfc1123#section-2.
-func CheckDomain(name string) error {
+func checkDomain(name string) error {
 	if len(name) > 255 {
 		return fmt.Errorf("cookie domain: name length is %d, can't exceed 255", len(name))
 	}
@@ -135,57 +156,81 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
-var dfltTime = time.Time{}
+// Path return the cookie path field value.
+func (o *Obj) Path() string {
+	return o.path
+}
 
-// SetSecure adds the given cookie to the server's response. The cokie value is
-// encrypted and encoded in base64. Assume that c.Check() has returned nil.
-func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
+// Domain return the cookie domain field value.
+func (o *Obj) Domain() string {
+	return o.domain
+}
+
+// MaxAge return the cookie max age field value.
+func (o *Obj) MaxAge() int {
+	return o.maxAge
+}
+
+// SetMaxAge sets the cookie max age field value.
+// If v is < 0, set max age to 0 (undefined).
+func (o *Obj) SetMaxAge(v int) {
+	if v < 0 {
+		v = 0
+	}
+	o.maxAge = v
+}
+
+// HTTPOnly return the cookie HTTPOnly field value.
+func (o *Obj) HTTPOnly() bool {
+	return o.httpOnly
+}
+
+// Secure return the cookie HTTPOnly field value.
+func (o *Obj) Secure() bool {
+	return o.secure
+}
+
+// SetSecureValue adds the cookie with the value v to the server response w.
+// The value v is encrypted and encoded in base64.
+func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
-	b := *bPtr
+	b := (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	b = append(b[:0], c.Name...)
+	b = append(b, o.name...)
 	b = append(b, '=')
-	b, err := appendEncodedValue(b, *(*string)(unsafe.Pointer(&c.Value)), key)
+	b, err := appendEncodedValue(b, v, o.key)
 	if err != nil {
 		return err
 	}
-	if len(c.Path) > 0 {
+	if len(o.path) > 0 {
 		b = append(b, "; Path="...)
-		b = append(b, c.Path...)
+		b = append(b, o.path...)
 	}
-	if len(c.Domain) > 0 {
+	if len(o.domain) > 0 {
 		b = append(b, "; Domain="...)
-		b = append(b, c.Domain...)
+		b = append(b, o.domain...)
 	}
-	if c.MaxAge > 0 {
+	if o.maxAge > 0 {
 		b = append(b, "; Max-Age="...)
-		b = strconv.AppendInt(b, int64(c.MaxAge), 10)
+		b = strconv.AppendInt(b, int64(o.maxAge), 10)
 	}
-	if c.HTTPOnly {
+	if o.httpOnly {
 		b = append(b, "; HttpOnly"...)
 	}
-	if c.Secure {
+	if o.secure {
 		b = append(b, "; Secure"...)
 	}
 	w.Header().Add("Set-Cookie", string(b))
 	return nil
 }
 
-var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
-
-// encodedValueLen return the encoded byte length of the value of valLen bytes.
-func encodedValueLen(valLen int) int {
-	l := valLen + 5 + macLen
-	return ((l-l%3)*8 + 5) / 6
-}
-
 // appendEncodedValue appends the encoded value val to dst.
 // dst is allocated or grown if it is nil or too small.
 // Return dst and the error if any.
-func appendEncodedValue(dst []byte, val string, key []byte) ([]byte, error) {
+func appendEncodedValue(dst []byte, val []byte, key []byte) ([]byte, error) {
 	encLen := encodedValueLen(len(val))
 	if cap(dst)-len(dst) < encLen {
-		tmp := make([]byte, len(dst), getBufSize(len(dst)+encLen))
+		tmp := make([]byte, len(dst), cap(dst)+encLen)
 		copy(tmp, dst)
 		dst = tmp
 	}
@@ -212,22 +257,11 @@ func appendEncodedValue(dst []byte, val string, key []byte) ([]byte, error) {
 	return appendEncodedBase64(dst, buf)
 }
 
-// getBufSize return the smallest power 2 bigger or equal to v.
-// See https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-func getBufSize(v int) int {
-	v--
-	v |= v >> 1
-	v |= v >> 2
-	v |= v >> 4
-	v |= v >> 8
-	v |= v >> 16
-	v |= v >> 32
-	v++
-	return v
+// encodedValueLen return the encoded byte length of the value of valLen bytes.
+func encodedValueLen(valLen int) int {
+	l := valLen + 5 + macLen
+	return ((l-l%3)*8 + 5) / 6
 }
-
-// macLen is the byte length of the MAC.
-const macLen = md5.Size
 
 // appendEncodedBase64 appends the base64 encoding of src to dst.
 // dst is allocated or grown if it is nil or too small.
@@ -236,9 +270,10 @@ func appendEncodedBase64(dst, src []byte) ([]byte, error) {
 	if len(src)%3 != 0 {
 		return dst, errors.New("invalid src size")
 	}
-	srcIdx, dstIdx := len(src), len(dst)+(len(src)*8+5)/6
+	encLen := (len(src)*8 + 5) / 6
+	srcIdx, dstIdx := len(src), len(dst)+encLen
 	if cap(dst) < dstIdx {
-		tmp := make([]byte, len(dst), getBufSize(dstIdx))
+		tmp := make([]byte, len(dst), dstIdx)
 		copy(tmp, dst)
 		dst = tmp
 	}
@@ -279,34 +314,24 @@ func base64Char(b byte) byte {
 	return '_' // b == 63
 }
 
-// GetSecureValue append the decoded value of the cookie named name to dst.
-// dst is allocated or grown if it is nil or too small.
-// Return dst and the error if any.
-// Use BytesToString() if you need a string instead of a byte slice.
-func GetSecureValue(dst []byte, r *http.Request, name string, key []byte) ([]byte, error) {
-	c, err := r.Cookie(name)
+// GetSecureValue return the decoded secure cookie value as a string or an error.
+func (o *Obj) GetSecureValue(r *http.Request) ([]byte, error) {
+	c, err := r.Cookie(o.name)
 	if err != nil {
 		return nil, err
 	}
-	return appendDecodedValue(dst, c.Value, key)
+	return decodeValue(c.Value, o.key)
 }
 
-// appendDecodedValue decode encVal and append the result to dst.
-// dst is allocated or grown if it is nil or too small.
-// Return dst and the error if any. Requires len(src)%4 == 0.
-// Requires: len(encVal) >= 28 && len(src)%4 == 0.
-func appendDecodedValue(dst []byte, encVal string, key []byte) ([]byte, error) {
-	if len(encVal) < 28 {
-		return dst, errors.New("invalid value length")
+// decodeValue decode the encoded value val.
+// Requires: len(val) >= 28 && len(val)%4 == 0 && len(key) == KeyLen.
+func decodeValue(val string, key []byte) ([]byte, error) {
+	if len(val) < 28 {
+		return nil, errors.New("invalid value length")
 	}
-	if len(key) < macLen {
-		return dst, errors.New("invalid key")
-	}
-	valPos := len(dst)
-	b, err := appendDecodedBase64(dst, encVal)
-	dst, b = b[:valPos], b[valPos:]
+	b, err := decodeBase64(val)
 	if err != nil {
-		return dst, err
+		return nil, err
 	}
 	block, err := aes.NewCipher(key[macLen:])
 	if err != nil {
@@ -326,25 +351,18 @@ func appendDecodedValue(dst []byte, encVal string, key []byte) ([]byte, error) {
 	if nRnd == 6 {
 		return nil, errors.New("invalid number of random bytes")
 	}
-	return dst[:valPos+msgLen-nRnd], nil
+	return b[:msgLen-nRnd], nil
 }
 
 // appendDecodedBase64 base64 decode src and append the result to dst.
 // dst is allocated or grown if it is nil or too small.
 // Return dst and the error if any. Requires len(src)%4 == 0.
-func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
+func decodeBase64(src string) ([]byte, error) {
 	if len(src)%4 != 0 {
-		return dst, errors.New("invalid src size")
+		return nil, errors.New("invalid src size")
 	}
-	decLen := (len(src) * 6) / 8
-	if cap(dst)-len(dst) < decLen {
-		tmp := make([]byte, len(dst), getBufSize(len(dst)+decLen))
-		copy(tmp, dst)
-		dst = tmp
-	}
-	var srcIdx int
-	dstIdx := len(dst)
-	dst = dst[:len(dst)+decLen]
+	dst := make([]byte, (len(src)*6)/8)
+	var srcIdx, dstIdx int
 	for srcIdx < len(src) {
 		var v uint64
 		for i := 0; i < 4; i++ {
@@ -374,61 +392,38 @@ func appendDecodedBase64(dst []byte, src string) ([]byte, error) {
 	return dst, nil
 }
 
-var forceError bool // for 100% test coverage
-
-// BytesToString converts a byte slice to a string without
-// making a copy. It is safe if, and only if, the byte slice
-// is not modified during the lifetime of the string.
-// See: https://syslog.ravelin.com/byte-vs-string-in-go-d645b67ca7ff
-func BytesToString(bs []byte) string {
-	// This is copied from runtime. It relies on the string
-	// header being a prefix of the slice header!
-	return *(*string)(unsafe.Pointer(&bs))
-}
-
 // Delete send a request to the remote user agent to delete the given
-// cookie. Don't rely on the assumption that the user agent will delete
-// the cookie. This function will at least clear the value.
-// The specification requires that the cookie name, it's path and domain
-// are provided. The Value, the Expires, MaxAge
-func Delete(w http.ResponseWriter, c *Params) error {
-	maxLen := len(c.Name) + 1
-	if len(c.Path) > 0 {
-		maxLen += 7 + len(c.Path)
-	}
-	if len(c.Domain) > 0 {
-		maxLen += 9 + len(c.Domain)
-	}
-	maxLen += 29
-	if c.HTTPOnly {
-		maxLen += 10
-	}
-	if c.Secure {
-		maxLen += 8
-	}
+// cookie. Note that the user agent may not execute the request.
+func (o *Obj) Delete(w http.ResponseWriter) error {
 	bPtr := bufPool.Get().(*[]byte)
-	b := *bPtr
+	b := (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	if cap(b) < maxLen {
-		b = make([]byte, 0, maxLen)
-	}
-	b = append(b[:0], c.Name...)
+	b = append(b, o.name...)
 	b = append(b, '=')
-	if len(c.Path) > 0 {
+	if len(o.path) > 0 {
 		b = append(b, "; Path="...)
-		b = append(b, c.Path...)
+		b = append(b, o.path...)
 	}
-	if len(c.Domain) > 0 {
+	if len(o.domain) > 0 {
 		b = append(b, "; Domain="...)
-		b = append(b, c.Domain...)
+		b = append(b, o.domain...)
 	}
 	b = append(b, "; Expires=Jan 2 15:04:05 2006"...)
-	if c.HTTPOnly {
+	if o.httpOnly {
 		b = append(b, "; HttpOnly"...)
 	}
-	if c.Secure {
+	if o.secure {
 		b = append(b, "; Secure"...)
 	}
 	w.Header().Add("Set-Cookie", string(b))
 	return nil
 }
+
+// macLen is the byte length of the MAC.
+const macLen = md5.Size
+
+// forceError is used for 100% test coverage
+var forceError bool
+
+// buffer pool
+var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}

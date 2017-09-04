@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 func TestGenerateKeyErrors(t *testing.T) {
@@ -20,7 +21,150 @@ func TestGenerateKeyErrors(t *testing.T) {
 	}
 }
 
-func TestEncodeBase64(t *testing.T) {
+func TestCheckName(t *testing.T) {
+	if err := checkName("toto"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkName("?"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkName(""); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkName("\t"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestCheckPath(t *testing.T) {
+	if err := checkPath("toto"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkPath(";"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkPath("\t"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestCheckDomain(t *testing.T) {
+	if err := checkDomain("example.com"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkDomain(strings.Repeat("a", 300)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("?"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("\t"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain(".example.com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example-.com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example.-com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example..com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example.com."); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func (o1 *Obj) Equal(o2 *Obj) bool {
+	if o1 == nil || o2 == nil {
+		return o1 == o2
+	}
+	return o1.name == o2.name && bytes.Equal(o1.key, o2.key) &&
+		o1.path == o2.path && o1.domain == o2.domain &&
+		o1.maxAge == o2.maxAge && o1.httpOnly == o2.httpOnly &&
+		o1.secure == o2.secure
+}
+
+func TestNew(t *testing.T) {
+	k := make([]byte, KeyLen)
+	n := "test"
+	tests := []struct {
+		k    []byte
+		n    string
+		p    Params
+		o    *Obj
+		fail bool
+	}{
+		{k: k, n: n, p: Params{}, o: &Obj{key: k, name: n}},
+		{k: k[:len(k)-1], n: n, p: Params{}, o: nil, fail: true},
+		{k: k, n: "", p: Params{}, o: nil, fail: true},
+		{k: k, n: n, p: Params{Path: "path"}, o: &Obj{key: k, name: n, path: "path"}},
+		{k: k, n: n, p: Params{Path: ";"}, o: nil, fail: true},
+		{k: k, n: n, p: Params{Domain: "example.com"}, o: &Obj{key: k, name: n, domain: "example.com"}},
+		{k: k, n: n, p: Params{Domain: "example..com"}, o: nil, fail: true},
+		{k: k, n: n, p: Params{MaxAge: 3600}, o: &Obj{key: k, name: n, maxAge: 3600}},
+		{k: k, n: n, p: Params{MaxAge: -3600}, o: nil, fail: true},
+		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{key: k, name: n, httpOnly: true}},
+		{k: k, n: n, p: Params{Secure: true}, o: &Obj{key: k, name: n, secure: true}},
+	}
+	for _, test := range tests {
+		obj, err := New(test.k, test.n, test.p)
+		if err != nil {
+			if !test.fail {
+				t.Errorf("got error '%s', expected no error for %+v", err, test)
+			}
+		} else if test.fail {
+			t.Errorf("got nil error, expected to fail for %+v", test)
+		}
+		if test.fail == (err != nil) && !obj.Equal(test.o) {
+			t.Errorf("got object %+v, expected %+v for input %+v", *obj, *test.o, test)
+		}
+	}
+}
+
+func TestAccessorsMethods(t *testing.T) {
+	key := make([]byte, KeyLen)
+	name := "test"
+	params := Params{
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	}
+	obj, err := New(key, name, params)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if obj.Path() != params.Path {
+		t.Errorf("got path '%s', expected '%s'", obj.Path(), params.Path)
+	}
+	if obj.Domain() != params.Domain {
+		t.Errorf("got domain '%s', expected '%s'", obj.Domain(), params.Domain)
+	}
+	if obj.MaxAge() != params.MaxAge {
+		t.Errorf("got max age %d, expected %d", obj.MaxAge(), params.MaxAge)
+	}
+	if obj.HTTPOnly() != params.HTTPOnly {
+		t.Errorf("got HTTP only %t, expected %t", obj.HTTPOnly(), params.HTTPOnly)
+	}
+	if obj.Secure() != params.Secure {
+		t.Errorf("got HTTP only %t, expected %t", obj.Secure(), params.Secure)
+	}
+	obj.SetMaxAge(100)
+	if obj.MaxAge() != 100 {
+		t.Errorf("got max age %d, expected %d", obj.MaxAge(), 100)
+	}
+	obj.SetMaxAge(-3600)
+	if obj.MaxAge() != 0 {
+		t.Errorf("got max age %d, expected %d", obj.MaxAge(), 0)
+	}
+}
+
+func TestAppendEncodedBase64(t *testing.T) {
 	tests := []struct {
 		in, out []byte
 		fail    bool
@@ -62,7 +206,7 @@ func TestDecodeBase64(t *testing.T) {
 		{in: " A8j", out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		out, err := appendDecodedBase64(nil, test.in)
+		out, err := decodeBase64(test.in)
 		if err != nil {
 			if !test.fail {
 				t.Errorf("got error '%s', expected no error", err)
@@ -112,7 +256,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 		panic(err)
 	}
 	for _, test := range tests {
-		out, err := appendEncodedValue(nil, BytesToString(test.in), key)
+		out, err := appendEncodedValue(nil, test.in, key)
 		if (err == nil) == test.encFail {
 			if err == nil {
 				t.Errorf("got nil encoding error, expected error for in: %+v", test.in)
@@ -120,7 +264,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := appendDecodedValue(nil, BytesToString(out), key)
+			in, err := decodeValue(*(*string)(unsafe.Pointer(&out)), key)
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -136,21 +280,18 @@ func TestEncodeDecodeValue(t *testing.T) {
 	}
 }
 
-func TestAppendDecodedValueErrors(t *testing.T) {
-	if _, err := appendDecodedValue(nil, "", nil); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", nil); err == nil {
+func TestDecodeValueErrors(t *testing.T) {
+	if _, err := decodeValue("", nil); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	key := make([]byte, 32)
-	if _, err := appendDecodedValue(nil, " AAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := decodeValue(" AAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key[:len(key)-1]); err == nil {
+	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := appendDecodedValue(nil, "AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key[:len(key)-1]); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf := make([]byte, 5, 32)
@@ -165,7 +306,7 @@ func TestAppendDecodedValueErrors(t *testing.T) {
 	stream := cipher.NewCTR(block, iv)
 	stream.XORKeyStream(buf[:ivPos], buf[:ivPos])
 	buf, _ = appendEncodedBase64(buf[:0], buf)
-	if _, err := appendDecodedValue(nil, BytesToString(buf), key); err == nil {
+	if _, err := decodeValue(*(*string)(unsafe.Pointer(&buf)), key); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 }
@@ -173,131 +314,55 @@ func TestAppendDecodedValueErrors(t *testing.T) {
 func TestEncodeValueErrors(t *testing.T) {
 	key := make([]byte, 32)
 	buf := make([]byte, 0, 28)
-	if _, err := appendEncodedValue(buf, "", key[:len(key)-1]); err == nil {
+	if _, err := appendEncodedValue(buf, []byte{}, key[:len(key)-1]); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	forceError = true
 	defer func() { forceError = false }()
-	buf = make([]byte, 0, 28)
-	if _, err := appendEncodedValue(buf, "", key); err != nil {
+	if _, err := appendEncodedValue(buf, []byte{}, key); err != nil {
 		t.Errorf("unexpected error: %s", err)
-	}
-}
-
-func TestCheckName(t *testing.T) {
-	if err := CheckName("toto"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := CheckName("?"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckName(""); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckName("\t"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestCheckPath(t *testing.T) {
-	if err := CheckPath("toto"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := CheckPath(";"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckPath("\t"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestCheckDomain(t *testing.T) {
-	if err := CheckDomain("example.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := CheckDomain(strings.Repeat("a", 300)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("?"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("\t"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain(".example.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("example-.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("example.-com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("example..com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := CheckDomain("example.com."); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestCheck(t *testing.T) {
-	c := &Params{Name: "name", Value: "value"}
-	if err := Check(c); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	c.Domain = "?"
-	if err := Check(c); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	c.Path = "\t"
-	if err := Check(c); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	c.Name = ""
-	if err := Check(c); err == nil {
-		t.Errorf("unexpected nil error")
 	}
 }
 
 func TestSetAndGetCookie(t *testing.T) {
-	key := make([]byte, KeyLen)
-	// Create a new HTTP Recorder (implements http.ResponseWriter)
-	recorder := httptest.NewRecorder()
-	cookie := &Params{
-		Name:     "test",
-		Value:    "expected",
+	p := Params{
 		Path:     "path",
 		Domain:   "example.com",
 		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
 	}
-	err := SetSecure(recorder, cookie, key)
+	obj, err := New(make([]byte, KeyLen), "test", p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder := httptest.NewRecorder()
+	inValue := []byte("some value")
+	err = obj.SetSecureValue(recorder, inValue)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
-
-	// Extract the dropped cookie from the request.
-	value, err := GetSecureValue(nil, request, "test", key)
+	outValue, err := obj.GetSecureValue(request)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
-	} else if BytesToString(value) != cookie.Value {
-		t.Errorf("got value '%s', expected '%s'", value, cookie.Value)
+	} else if !bytes.Equal(outValue, inValue) {
+		t.Errorf("got value '%s', expected '%s'", outValue, inValue)
 	}
 
-	// Extract the dropped cookie from the request.
-	value, err = GetSecureValue(nil, request, "xxx", key)
+	// test retrieve non-existant cookie.
+	obj.name = "xxx"
+	outValue, err = obj.GetSecureValue(request)
 	if err == nil {
 		t.Errorf("unexpected nil error")
-	} else if value != nil {
-		t.Errorf("unexpected nil value")
+	} else if outValue != nil {
+		t.Errorf("unexpected non-nil value")
 	}
 
-	// Create a new HTTP Recorder (implements http.ResponseWriter)
+	// force encoding error
+	obj.key = obj.key[:len(obj.key)-1]
 	recorder = httptest.NewRecorder()
-	err = SetSecure(recorder, cookie, key[:len(key)-1])
+	err = obj.SetSecureValue(recorder, inValue)
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -309,17 +374,19 @@ func TestDeleteCookie(t *testing.T) {
 	if len(*bPtr) > 64 {
 		bPtr = bufPool.Get().(*[]byte)
 	}
-	key := make([]byte, KeyLen)
-	// Create a new HTTP Recorder (implements http.ResponseWriter)
-	recorder := httptest.NewRecorder()
-	cookie := &Params{
-		Name:     "test",
+	p := Params{
 		Path:     "path",
 		Domain:   "example.com",
+		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
 	}
-	err := Delete(recorder, cookie)
+	obj, err := New(make([]byte, KeyLen), "test", p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder := httptest.NewRecorder()
+	err = obj.Delete(recorder)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -332,12 +399,5 @@ func TestDeleteCookie(t *testing.T) {
 		if len(c.Value) != 0 {
 			t.Errorf("got value '%s', expected empty string", c.Value)
 		}
-	}
-
-	// Create a new HTTP Recorder (implements http.ResponseWriter)
-	recorder = httptest.NewRecorder()
-	err = SetSecure(recorder, cookie, key[:len(key)-1])
-	if err == nil {
-		t.Errorf("unexpected nil error")
 	}
 }
