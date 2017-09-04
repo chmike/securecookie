@@ -1,6 +1,9 @@
 # Encode and Decode secure cookies
 
 This package provides functions to encode and decode cookie values for use as secure cookie.
+
+**Warning:** It still require reviews and validations to be used in production. 
+
 The encoding algorithm is described below.
 
 To intall or update the cookie package use the instruction:
@@ -24,59 +27,51 @@ Save the key in a file using hex.EncodeToString() and restrict access to that fi
 ``` Go
 var key []byte = cookie.GenerateRandomKey()
 ```
+To mitigate the risk that an attacker get the saved key, store a second key in 
+another place and use the xor of both keys as secure cookie key. The attacker 
+will have to get both keys which must be more difficult. 
+
+### Instantiating a cookie object
+
+``` Go
+params := Params{
+    Path:     "/sec",
+    Domain:   "example.com", 
+    MaxAge:   3600,
+    HTTPOnly: true,
+    Secure:   true,
+}
+obj, err := cookie.New(key, "Auth", params)
+if err != nil {
+    // ...
+}
+```
 
 ### Adding a secure cookie to a server response
 
 ``` Go
-params := cookie.Params{
-    Name:     "test",
-    Value:    "my secret cookie value",
-    Path:     "path",
-    Domain:   "example.com",
-    Expires:  time.Now().Add(24 * time.Hour),
-    HTTPOnly: true,
-    Secure:   true,
+err = obj.SetSecureValue(w, []byte("some value)) // w is the http.ResponseWriter
+if err != nil {
+    // ...
 }
-err := cookie.SetSecure(w, &params, key) // w is the http.ResponseWriter
 ```
-
-While the Value field is of type string, a []byte converted to a string with
-the function cookie.BytesToString() may also be assigned to it. This function 
-avoids the allocation and copy overhead, but it requires that the value is not
-modified after the conversion.
 
 ### Decoding a secure cookie value
 
 ``` Go
-value, err := cookie.GetSecureValue(r, "test", key) // r is *http.Request
+value, err := obj.GetSecureValue(r) // r is the *http.Request
 ```
 
-The returned value is of type []byte, but it can be efficiently converted
-to a string with the function cookie.BytesToString(). The key must be the
-same key used the set the secure cookie.
+The returned value is of type []byte.
 
 ### Deleting a cookie
 
 ``` Go
-params := cookie.Params{
-    Name:       "test",
-    // Value:    ignored
-    Path:       "path",
-    Domain:     "example.com",
-    // MaxAge:   ignored
-    // Expires:  ignored
-    HTTPOnly:   true, // Optional, but recommended
-    Secure:     true, // Optional, but recommended
-}
-err := cookie.Delete(w, &params)
+err := obj.Delete(r) // r is the *http.Request
 ```
 
-To delete a cookie, the specification requires that we provide the name,
-the path and domain value, and an Expires value in the past. The
-Delete function will generate that expires value for your.
-
-The actual values in the Value, MaxAge and Expires fields of the Params
-struct are ignored.    
+Note: don't rely on the assumption that the remote user agent will effectively 
+delete the cookie. 
 
 ## Value encoding 
 
@@ -92,7 +87,7 @@ bits of the last random byte encode the number of random bytes: 0->3,
 
 The mac is an hmac(md5) computed over the value and random bytes. While 
 it is easy to forge an md5 collision, forging a valid hmac(md5) is harder 
-because of the key. It is even harder if the MAC is encrypted. 
+because of the secret key. It is even harder if the MAC is encrypted. 
 
 The key is 32 byte long. The first 16 bytes are used as hmac key, the last
 16 bytes are used as encryption key.  
@@ -102,15 +97,17 @@ length of the MAC is exactly the length of an AES block. The encrypted
 MAC is then used as IV, and the value and random bytes are encrypted using
 CTR with AES128.
 
-The resulting ciphered text is then encoded in base64 and stored as value in
-the cookie. 
+The resulting ciphered text is then encoded in base64 and stored as value
+in the cookie. 
 
 These operations are reversed to decrypt the value.
 
-## Contributions
+## Contributors
 
-- lstokeworth (reddit): suggest to replace `copy` with `append`, simplify by 
-  removing the Expires cookie field, and provide a constant date in the past
-  for Delete, in reddit discussion.
-- cstockton (github): [bug report](https://github.com/chmike/cookie/issues/1) 
-  and suggest better API in reddit discussion.
+- lstokeworth (reddit): 
+    - suggest to replace `copy` with `append`, 
+    - remove the Expires Params field and use only the MaxAge,
+    - provide a constant date in the past for Delete.
+- cstockton (github): 
+    - critical [bug report](https://github.com/chmike/cookie/issues/1),
+    - suggest simpler API.
