@@ -106,3 +106,11 @@ The resulting ciphered text is then encoded in base64 and stored as value in
 the cookie. 
 
 These operations are reversed to decrypt the value.
+
+## Contributions
+
+- lstokeworth (reddit): suggest to replace `copy` with `append`, simplify by 
+  removing the Expires cookie field, and provide a constant date in the past
+  for Delete, in reddit discussion.
+- cstockton (github): [bug report](https://github.com/chmike/cookie/issues/1) 
+  and suggest better API in reddit discussion.

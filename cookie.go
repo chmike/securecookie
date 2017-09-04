@@ -167,7 +167,7 @@ func SetSecure(w http.ResponseWriter, c *Params, key []byte) error {
 	if c.Secure {
 		b = append(b, "; Secure"...)
 	}
-	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
+	w.Header().Add("Set-Cookie", string(b))
 	return nil
 }
 
@@ -429,6 +429,6 @@ func Delete(w http.ResponseWriter, c *Params) error {
 	if c.Secure {
 		b = append(b, "; Secure"...)
 	}
-	w.Header().Add("Set-Cookie", *(*string)(unsafe.Pointer(&b)))
+	w.Header().Add("Set-Cookie", string(b))
 	return nil
 }
