@@ -122,7 +122,7 @@ These operations are reversed to decrypt the value.
     - suggest simpler API.
 
 
-## Authentication with secure cookies 
+## Authentication with secure cookies
 
 It is very important to understand that the security is limited to the cookie 
 content. Nothing proves that the other data received by the server with a 
