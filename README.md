@@ -139,19 +139,28 @@ user to click on the validate button. The user's browser will then send the
 form response with it's field values to the site along with the secure cookie ! 
 
 If the form is to send *n* pizzas to the account holder where *n* is a field
-value that the mean attacker as set to 10 for instance, the site owner checking 
+value that the mean attacker has set to 10 for instance, the site owner checking 
 only the secure cookie validity will assume that the victim ordered 10 pizzas.
-It will be very difficult to sort out what happened.
+It will be very difficult to sort out what happened when the delivery man 
+arrives to the user's home with his 10 pizzas.
 
 To avoid this, the solution is to add a way to authenticate the form response.
 This is done by adding a hidden field in the form with a random byte sequence,
 and set a secure cookie with that byte sequence as value and a validity date
 limit. When the user fill that form, the server will receive back the secure 
-cookie and the field value. The server then check that they match to validate
-the response. 
+cookie and the hidden field value. The server then check that they match to 
+validate the response. 
 
 An attacker can forge a random byte sequence, but can't forge the secure cookie
 that goes with it. 
 
 The above method works with forms, not with REST API like requests because the 
-server can't send the random token to the client that it can use as challenge. 
+server can't send the random token to the client that can use as challenge. 
+For REST API like authenticated transactions, the client and server have to 
+both know a secret byte sequence they use to compute a hmac value over the URI,
+the method, the data and a message sequence number. They can then authenticate
+the message and the source. 
+
+The secret byte sequence can be determined in the authentication transaction 
+with public and private keys. There is no need for TLS to securly authenticate
+the client and server. A secret cookie is no help here. 
