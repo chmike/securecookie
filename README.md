@@ -10,7 +10,7 @@ If you consider using secure cookie for authentication, take the time to
 read the last section [Authentication with secure cookies](#authentication-with-secure-cookies).
 
 **Warning:** Because this package impacts security of web applications, 
-it is a critical functionaly. e still need reviews to be production ready. 
+it is a critical functionaly. It still need reviews to be production ready. 
 Feedback is welcome. 
 
 ## Installation
