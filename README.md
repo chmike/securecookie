@@ -7,7 +7,7 @@ remote cookie owner to know what information is stored in the cookie and
 to modify it. It also prevent an attacker to forge a fake cookie.
 
 If you consider using secure cookie for authentication, take the time to
-read the last section [Authentication with secure cookies](##Authentication-with-secure-cookies).
+read the last section [Authentication with secure cookies](#authentication-with-secure-cookies).
 
 **Warning:** Because this package impacts security of web applications, 
 it is a critical functionaly. e still need reviews to be production ready. 
