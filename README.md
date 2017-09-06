@@ -121,6 +121,7 @@ These operations are reversed to decrypt the value.
     - critical [bug report](https://github.com/chmike/cookie/issues/1),
     - suggest simpler API.
 
+
 ## Authentication with secure cookies 
 
 It is very important to understand that the security is limited to the cookie 
