@@ -2,24 +2,15 @@
 
 This package provides functions to encode and decode secure cookie values.
 
-A secure cookie has its value encryted along with a MAC so that the value
-can be autenticated when decrypted. This allows to store sensible 
-informations in the cookie that can be accessed by decoding it.
+A secure cookie has its value encryted along with a MAC. This prevents the 
+remote cookie owner to know what information is stored in the cookie and 
+to modify it. It also prevent an attacker to forge a fake cookie.
 
-For instance, it is then possible to store the sequentially assigned user 
-record ID, the user role and an value expire date. The remote user won't 
-be able to see or modify that information.
-
-The main benefit is that the information becomes available in the backend
-request handler without accessing a shared and persistent storage. This 
-avoids a significant source of latency when the server is loaded. 
-
-Another benefit is that some request handlers may become fully stateless
-since the state can be safely stored in the cookie and transmitted with 
-each request.
+If you consider using secure cookie for authentication, take the time to
+read the last section [Authentication with secure cookies](##Authentication-with-secure-cookies).
 
 **Warning:** Because this package impacts security of web applications, 
-it is critical and still need reviews to be production ready. 
+it is a critical functionaly. e still need reviews to be production ready. 
 Feedback is welcome. 
 
 ## Installation
@@ -129,3 +120,37 @@ These operations are reversed to decrypt the value.
 - cstockton (github): 
     - critical [bug report](https://github.com/chmike/cookie/issues/1),
     - suggest simpler API.
+
+## Authentication with secure cookies 
+
+It is very important to understand that the security is limited to the cookie 
+content. Nothing proves that the other data received by the server with a 
+secure cookie has been created by the user's request.
+
+When you have properly set the domain path, and HTTPOnly with the 
+Secure flag, and use HTTPS, only the user browser can send the cookie. 
+But it is still possible for an attacker to trick your browser to send
+a request to the site without the user knowledge and consent. This is known as 
+a [CSRF](https://en.wikipedia.org/wiki/Cross-site_request_forgery) attack. 
+
+All it takes is for the attacker to create a page with a form and incite the 
+user to click on the validate button. The user's browser will then send the 
+form response with it's field values to the site along with the secure cookie ! 
+
+If the form is to send *n* pizzas to the account holder where *n* is a field
+value that the mean attacker as set to 10 for instance, the site owner checking 
+only the secure cookie validity will assume that the victim ordered 10 pizzas.
+It will be very difficult to sort out what happened.
+
+To avoid this, the solution is to add a way to authenticate the form response.
+This is done by adding a hidden field in the form with a random byte sequence,
+and set a secure cookie with that byte sequence as value and a validity date
+limit. When the user fill that form, the server will receive back the secure 
+cookie and the field value. The server then check that they match to validate
+the response. 
+
+An attacker can forge a random byte sequence, but can't forge the secure cookie
+that goes with it. 
+
+The above method works with forms, not with REST API like requests because the 
+server can't send the random token to the client that it can use as challenge. 
