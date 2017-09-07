@@ -80,7 +80,57 @@ err := obj.Delete(r) // r is the *http.Request
 ```
 
 Note: don't rely on the assumption that the remote user agent will effectively 
-delete the cookie. 
+delete the cookie.
+
+## Benchmarking
+
+Encoding the cookie named "test" with value "some value". See benchmark functions
+at the bottom of cookie_test.go file.  
+
+|                |   Chmike |  Gorilla |
+| -------------: | -------: | -------: |
+|    Value bytes |       40 |      112 |
+|      Set ns/op |    11157 |    20521 |
+|      Get ns/op |    10772 |    22108 |
+|       Set B/op |     1631 |     3324 |
+|       Get B/op |     1656 |     2784 |
+|  Set allocs/op |       13 |       37 |
+|  Get allocs/op |       16 |       39 |
+
+## Qualitative comparison with Gorilla's secure cookie
+
+Gorilla is more "expensive", but also superior on multiple aspects.
+
+- Gorilla encodes a timestamp with the encoded value. It checks that the timestamp 
+  is in a valid range when decoding. Chmike provides no timestanp checking. It's 
+  left to the user to implement.
+- Gorilla computes the hmac over the cookie name, the timestamp and the encrypted 
+  value. Chmike computes the hmac only on the value. The user has to add the name
+  of the cookie in the value if he want it to be validated.
+- Gorrilla uses hmac(sha256) which is 32 bytes long. Chmike uses hmac(md5) which
+  is only 16 bytes long. Gorilla is thus safer.
+- Gorilla uses 16 random bytes as iv. Chmike use only 3 to 5 random bytes to
+  randomize the mac used as iv. That is much less entropy.
+- Gorilla checks that the value doesn't exceed 4096 bytes, which is the maximum length.
+  Chmike doesn't. 
+
+However, there are also some aspects where Gorilla seam to fall short. 
+
+- Gorilla encodes in base64 the encrypted value, then after prepending the timestamp 
+  and appending the hmac, encodes the whole byte sequence in base64 again. This double
+  base64 encoding is a waste of time and space for the resulting encoding. Chmike
+  avoids this. 
+- Gorilla has no encoding version field. They can't change the internal encoding to 
+  optimize it or enhance it without breaking backward compatibility. Chmike has also
+  no encoding version field. 
+  
+As a conclusion, you have a trade-off to make between security and performance. 
+Gorilla is more secure than Chmike's cookie in it's current state. Chmike generate
+more compact cookie values, but is also minimalist about security. 
+
+There is room for easy improvement for Chmike's secure cookie. It's on the todo list.
+In the mean time, beware that the encoding may change at any time without notice. 
+Use a frozen copy of this package for your development. 
 
 ## Value encoding 
 

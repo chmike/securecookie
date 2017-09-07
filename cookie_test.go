@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unsafe"
+
+	"github.com/gorilla/securecookie"
 )
 
 func TestGenerateKeyErrors(t *testing.T) {
@@ -398,6 +400,111 @@ func TestDeleteCookie(t *testing.T) {
 	} else {
 		if len(c.Value) != 0 {
 			t.Errorf("got value '%s', expected empty string", c.Value)
+		}
+	}
+}
+
+func BenchmarkChmikeSetCookie(b *testing.B) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var key = make([]byte, KeyLen)
+	obj, err := New(key, name, Params{
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		err = obj.SetSecureValue(recorder, inValue)
+		if err != nil {
+			panic(err)
+		}
+		recorder.Header().Del(name)
+	}
+}
+
+func BenchmarkGorillaSetCookie(b *testing.B) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var hashKey = make([]byte, 16)
+	var blockKey = make([]byte, 16)
+	var s = securecookie.New(hashKey, blockKey)
+	var cookie = http.Cookie{
+		Name:     name,
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HttpOnly: true,
+		Secure:   true,
+	}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		encoded, err := s.Encode(name, inValue)
+		if err != nil {
+			panic(err)
+		}
+		cookie.Value = encoded
+		http.SetCookie(recorder, &cookie)
+		recorder.Header().Del(name)
+	}
+}
+
+func BenchmarkChmikeGetCookie(b *testing.B) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var key = make([]byte, KeyLen)
+	obj, err := New(key, name, Params{})
+	if err != nil {
+		panic(err)
+	}
+	err = obj.SetSecureValue(recorder, inValue)
+	if err != nil {
+		panic(err)
+	}
+	//fmt.Println(recorder.HeaderMap["Set-Cookie"])
+	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		_, err := obj.GetSecureValue(request)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func BenchmarkGorillaGetCookie(b *testing.B) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var hashKey = make([]byte, 16)
+	var blockKey = make([]byte, 16)
+	var s = securecookie.New(hashKey, blockKey)
+	var cookie = http.Cookie{Name: name}
+	encoded, err := s.Encode(name, inValue)
+	if err != nil {
+		panic(err)
+	}
+	cookie.Value = encoded
+	http.SetCookie(recorder, &cookie)
+	// fmt.Println(recorder.HeaderMap["Set-Cookie"])
+	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		outCookie, err := request.Cookie(name)
+		if err != nil {
+			panic(err)
+		}
+		var outValue []byte
+		if err = s.Decode(name, outCookie.Value, &outValue); err != nil {
+			panic(err)
 		}
 	}
 }
