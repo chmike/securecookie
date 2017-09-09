@@ -53,7 +53,7 @@ type Obj struct {
 }
 
 // New instantiate a validated cookie parameter field set with an associated key.
-func New(key []byte, name string, p Params) (*Obj, error) {
+func New(name string, key []byte, p Params) (*Obj, error) {
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("key length is %d, expected %d", len(key), KeyLen)
 	}

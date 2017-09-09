@@ -113,7 +113,7 @@ func TestNew(t *testing.T) {
 		{k: k, n: n, p: Params{Secure: true}, o: &Obj{key: k, name: n, secure: true}},
 	}
 	for _, test := range tests {
-		obj, err := New(test.k, test.n, test.p)
+		obj, err := New(test.n, test.k, test.p)
 		if err != nil {
 			if !test.fail {
 				t.Errorf("got error '%s', expected no error for %+v", err, test)
@@ -137,7 +137,7 @@ func TestAccessorsMethods(t *testing.T) {
 		HTTPOnly: true,
 		Secure:   true,
 	}
-	obj, err := New(key, name, params)
+	obj, err := New(name, key, params)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -334,7 +334,7 @@ func TestSetAndGetCookie(t *testing.T) {
 		HTTPOnly: true,
 		Secure:   true,
 	}
-	obj, err := New(make([]byte, KeyLen), "test", p)
+	obj, err := New("test", make([]byte, KeyLen), p)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -383,7 +383,7 @@ func TestDeleteCookie(t *testing.T) {
 		HTTPOnly: true,
 		Secure:   true,
 	}
-	obj, err := New(make([]byte, KeyLen), "test", p)
+	obj, err := New("test", make([]byte, KeyLen), p)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -409,7 +409,7 @@ func BenchmarkChmikeSetCookie(b *testing.B) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(key, name, Params{
+	obj, err := New(name, key, Params{
 		Path:     "path",
 		Domain:   "example.com",
 		MaxAge:   3600,
@@ -461,7 +461,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(key, name, Params{})
+	obj, err := New(name, key, Params{})
 	if err != nil {
 		panic(err)
 	}
