@@ -211,6 +211,9 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	if o.secure {
 		b = append(b, "; Secure"...)
 	}
+	if len(b) > maxCookieLen {
+		return fmt.Errorf("cookie too long: len is %d, max is %d", len(b), maxCookieLen)
+	}
 	w.Header().Add("Set-Cookie", string(b))
 	return nil
 }
@@ -412,6 +415,9 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 
 // macLen is the byte length of the MAC.
 const macLen = md5.Size
+
+// maxCookieLen is the maximum len of a cookie
+const maxCookieLen = 4000
 
 // forceError is used for 100% test coverage
 var forceError bool

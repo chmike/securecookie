@@ -353,6 +353,13 @@ func TestSetAndGetCookie(t *testing.T) {
 		t.Errorf("unexpected non-nil value")
 	}
 
+	// force too big cookie error
+	recorder = httptest.NewRecorder()
+	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
+	if err == nil {
+		t.Errorf("unexpected nil error")
+	}
+
 	// force encoding error
 	obj.key = obj.key[:len(obj.key)-1]
 	recorder = httptest.NewRecorder()
