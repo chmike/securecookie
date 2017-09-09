@@ -171,15 +171,6 @@ func (o *Obj) MaxAge() int {
 	return o.maxAge
 }
 
-// SetMaxAge sets the cookie max age field value.
-// If v is < 0, set max age to 0 (undefined).
-func (o *Obj) SetMaxAge(v int) {
-	if v < 0 {
-		v = 0
-	}
-	o.maxAge = v
-}
-
 // HTTPOnly return the cookie HTTPOnly field value.
 func (o *Obj) HTTPOnly() bool {
 	return o.httpOnly

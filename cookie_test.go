@@ -156,14 +156,6 @@ func TestAccessorsMethods(t *testing.T) {
 	if obj.Secure() != params.Secure {
 		t.Errorf("got HTTP only %t, expected %t", obj.Secure(), params.Secure)
 	}
-	obj.SetMaxAge(100)
-	if obj.MaxAge() != 100 {
-		t.Errorf("got max age %d, expected %d", obj.MaxAge(), 100)
-	}
-	obj.SetMaxAge(-3600)
-	if obj.MaxAge() != 0 {
-		t.Errorf("got max age %d, expected %d", obj.MaxAge(), 0)
-	}
 }
 
 func TestAppendEncodedBase64(t *testing.T) {
