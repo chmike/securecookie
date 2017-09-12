@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -399,6 +400,55 @@ func TestDeleteCookie(t *testing.T) {
 	}
 }
 
+func TestChmikeValueLen(t *testing.T) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var key = make([]byte, KeyLen)
+	obj, err := New(name, key, Params{
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	err = obj.SetSecureValue(recorder, inValue)
+	if err != nil {
+		panic(err)
+	}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	c, err := request.Cookie("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("Chmike value:", c.Value, "len:", len(c.Value))
+}
+
+func TestGorillaValueLen(t *testing.T) {
+	var name = "test"
+	var inValue = []byte("some value")
+	var recorder = httptest.NewRecorder()
+	var hashKey = make([]byte, 16)
+	var blockKey = make([]byte, 16)
+	var s = securecookie.New(hashKey, blockKey)
+	var cookie = http.Cookie{Name: name}
+	encoded, err := s.Encode(name, inValue)
+	if err != nil {
+		panic(err)
+	}
+	cookie.Value = encoded
+	http.SetCookie(recorder, &cookie)
+	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	c, err := request.Cookie("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
+}
+
 func BenchmarkChmikeSetCookie(b *testing.B) {
 	var name = "test"
 	var inValue = []byte("some value")
@@ -464,7 +514,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	if err != nil {
 		panic(err)
 	}
-	//fmt.Println(recorder.HeaderMap["Set-Cookie"])
+	//fmt.Println("Chmike cookie:", recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -489,7 +539,7 @@ func BenchmarkGorillaGetCookie(b *testing.B) {
 	}
 	cookie.Value = encoded
 	http.SetCookie(recorder, &cookie)
-	// fmt.Println(recorder.HeaderMap["Set-Cookie"])
+	//fmt.Println("Gorilla cookie:", recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
