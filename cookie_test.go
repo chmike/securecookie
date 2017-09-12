@@ -2,25 +2,24 @@ package cookie
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"unsafe"
 
 	"github.com/gorilla/securecookie"
 )
 
 func TestGenerateKeyErrors(t *testing.T) {
-	forceError = true
-	defer func() { forceError = false }()
 	if _, err := GenerateRandomKey(); err != nil {
 		t.Errorf("unexpected error: %s", err)
+	}
+	forceError = 1
+	defer func() { forceError = 0 }()
+	if _, err := GenerateRandomKey(); err == nil {
+		t.Errorf("unexpected nil error")
 	}
 }
 
@@ -103,6 +102,7 @@ func TestNew(t *testing.T) {
 	}{
 		{k: k, n: n, p: Params{}, o: &Obj{key: k, name: n}},
 		{k: k[:len(k)-1], n: n, p: Params{}, o: nil, fail: true},
+		{k: make([]byte, KeyLen+1), n: n, p: Params{}, o: nil, fail: true},
 		{k: k, n: "", p: Params{}, o: nil, fail: true},
 		{k: k, n: n, p: Params{Path: "path"}, o: &Obj{key: k, name: n, path: "path"}},
 		{k: k, n: n, p: Params{Path: ";"}, o: nil, fail: true},
@@ -115,14 +115,18 @@ func TestNew(t *testing.T) {
 	}
 	for _, test := range tests {
 		obj, err := New(test.n, test.k, test.p)
-		if err != nil {
-			if !test.fail {
-				t.Errorf("got error '%s', expected no error for %+v", err, test)
-			}
-		} else if test.fail {
-			t.Errorf("got nil error, expected to fail for %+v", test)
+		if err != nil && !test.fail {
+			t.Errorf("got error '%s', expected no error for %+v", err, test)
+			continue
 		}
-		if test.fail == (err != nil) && !obj.Equal(test.o) {
+		if err == nil && test.fail {
+			t.Errorf("got nil error, expected to fail for %+v", test)
+			continue
+		}
+		if err != nil || test.fail {
+			continue
+		}
+		if !obj.Equal(test.o) {
 			t.Errorf("got object %+v, expected %+v for input %+v", *obj, *test.o, test)
 		}
 	}
@@ -159,7 +163,7 @@ func TestAccessorsMethods(t *testing.T) {
 	}
 }
 
-func TestAppendEncodedBase64(t *testing.T) {
+func TestEncodeBase64(t *testing.T) {
 	tests := []struct {
 		in, out []byte
 		fail    bool
@@ -167,21 +171,38 @@ func TestAppendEncodedBase64(t *testing.T) {
 		{in: []byte{}, out: []byte{}},
 		{in: []byte{0, 0, 0}, out: []byte{65, 65, 65, 65}},
 		{in: []byte{255, 255, 255}, out: []byte{95, 95, 95, 95}},
+		{in: []byte{0, 1, 2, 3, 4}, out: nil, fail: true},
 		{in: []byte{0, 1, 2, 3, 4, 5}, out: []byte{65, 65, 69, 67, 65, 119, 81, 70}},
 		{in: []byte{3, 200, 254}, out: []byte{65, 56, 106, 45}},
-		{in: []byte{3, 200, 254, 1}, out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		out, err := appendEncodedBase64(nil, test.in)
-		if err != nil {
-			if !test.fail {
-				t.Errorf("got error '%s', expected no error", err)
-			}
-		} else if test.fail {
-			t.Errorf("got nil error, expected to fail")
+		var encLen = (len(test.in)*8 + 5) / 6
+		var buf = make([]byte, 0, encLen+10)
+		out, err := encodeBase64(buf, test.in)
+		if !test.fail && len(out) != encLen {
+			t.Errorf("got encoding len %d, expected %d for input %v", len(out), encLen, test.in)
+			continue
 		}
-		if test.fail == (err != nil) && !bytes.Equal(out, test.out) {
-			t.Errorf("got output %v, expected %v for input %v", out, test.out, test.in)
+		if err != nil && !test.fail {
+			t.Errorf("got base64 encoding error '%s', expected no error", err)
+			continue
+		}
+		if err == nil && test.fail {
+			t.Errorf("got base64 encoding nil error, expected to fail")
+			continue
+		}
+		if test.fail || err != nil {
+			continue
+		}
+		if !bytes.Equal(out, test.out) {
+			t.Errorf("got base64 encoding output %v, expected %v for input %v", out, test.out, test.in)
+			continue
+		}
+
+		outStr := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(test.in)
+		if !bytes.Equal([]byte(outStr), test.out) {
+			t.Errorf("got base64 encoding output %v, expected %v for input %v", out, test.out, test.in)
+			continue
 		}
 	}
 }
@@ -201,36 +222,28 @@ func TestDecodeBase64(t *testing.T) {
 		{in: " A8j", out: nil, fail: true},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
-		out, err := decodeBase64(test.in)
+		out, err := decodeBase64(nil, test.in)
+		if err != nil && !test.fail {
+			t.Errorf("got base64 decoding error '%s', expected no error", err)
+			continue
+		}
+		if err == nil && test.fail {
+			t.Errorf("got base64 decoding nil error, expected to fail")
+			continue
+		}
+		if test.fail || err != nil {
+			continue
+		}
+		if !bytes.Equal(out, test.out) {
+			t.Errorf("got base64 decoding output %v, expected %v for input '%v'", out, test.out, test.in)
+		}
+		stdOut, err := base64.URLEncoding.WithPadding(base64.NoPadding).DecodeString(test.in)
 		if err != nil {
-			if !test.fail {
-				t.Errorf("got error '%s', expected no error", err)
-			}
-		} else if test.fail {
-			t.Errorf("got nil error, expected to fail")
+			t.Errorf("unexpected error for input '%s': %s", test.in, err)
+			continue
 		}
-		if test.fail == (err != nil) && !bytes.Equal(out, test.out) {
-			t.Errorf("got output %v, expected %v for input %v", out, test.out, test.in)
-		}
-	}
-}
-
-func TestEncodedValLen(t *testing.T) {
-	tests := []struct {
-		in, out int
-	}{
-		{in: 0, out: 28},
-		{in: 1, out: 28},
-		{in: 2, out: 28},
-		{in: 3, out: 32},
-		{in: 4, out: 32},
-		{in: 5, out: 32},
-		{in: 6, out: 36},
-	}
-	for _, test := range tests {
-		out := encodedValueLen(test.in)
-		if out != test.out {
-			t.Errorf("got %d, expected %d for %d", out, test.out, test.in)
+		if !bytes.Equal(test.out, stdOut) {
+			t.Errorf("got base64 decoding output %v, expected %v for input '%v'", stdOut, test.out, test.in)
 		}
 	}
 }
@@ -241,17 +254,19 @@ func TestEncodeDecodeValue(t *testing.T) {
 		encFail, decFail bool
 	}{
 		{in: []byte{}},
+		{in: []byte{0}},
 		{in: []byte{0, 0, 0}},
 		{in: []byte{255, 255, 255}},
+		{in: []byte{0, 1, 2, 3, 4}},
 		{in: []byte{0, 1, 2, 3, 4, 5}},
 		{in: []byte{3, 200, 254}},
 	}
-	obj, err := New("test", make([]byte, KeyLen), Params{})
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
 	if err != nil {
 		panic(err)
 	}
 	for _, test := range tests {
-		out, err := obj.appendEncodedValue(nil, test.in)
+		out, err := obj.encodeValue(nil, test.in)
 		if (err == nil) == test.encFail {
 			if err == nil {
 				t.Errorf("got nil encoding error, expected error for in: %+v", test.in)
@@ -259,7 +274,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := obj.decodeValue(*(*string)(unsafe.Pointer(&out)))
+			in, err := obj.decodeValue(nil, string(out))
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -275,52 +290,69 @@ func TestEncodeDecodeValue(t *testing.T) {
 	}
 }
 
-func TestDecodeValueErrors(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{})
-	if err != nil {
-		panic(err)
-	}
-	if _, err := obj.decodeValue(""); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	key := make([]byte, 32)
-	if _, err := obj.decodeValue(" AAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, err := obj.decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, err := obj.decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	buf := make([]byte, 5, 32)
-	buf[4] = 3 // set invalid number of random bytes
-	mac := hmac.New(md5.New, key[:blockLen])
-	mac.Write(buf)
-	ivPos := len(buf)
-	buf = mac.Sum(buf)
-	iv := buf[ivPos:]
-	block, _ := aes.NewCipher(key[blockLen:])
-	block.Encrypt(iv, iv)
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(buf[:ivPos], buf[:ivPos])
-	buf, _ = appendEncodedBase64(buf[:0], buf)
-	if _, err := obj.decodeValue(*(*string)(unsafe.Pointer(&buf))); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
 func TestEncodeValueErrors(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), Params{})
 	if err != nil {
 		panic(err)
 	}
-	buf := make([]byte, 0, 28)
-	forceError = true
-	defer func() { forceError = false }()
-	if _, err := obj.appendEncodedValue(buf, []byte{}); err != nil {
-		t.Errorf("unexpected error: %s", err)
+	buf := make([]byte, 0, 59)
+	forceError = 2
+	defer func() { forceError = 0 }()
+	if _, err := obj.encodeValue(buf, []byte{1}); err == nil {
+		t.Errorf("unexpected nil error")
 	}
+	forceError = 1
+	if _, err := obj.encodeValue(buf, []byte{}); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestDecodeValueErrors(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := obj.decodeValue(nil, ""); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	buf[len(buf)-1]--
+	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf[len(buf)-1]++
+
+	obj.maxAge -= 10000
+	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	obj.maxAge += 10000
+
+	// set an invalid paddingLen value
+	dec, err := decodeBase64(nil, string(buf))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec[0] |= 3
+	dec = dec[:len(dec)-hmacLen]
+	obj.mac.Reset()
+	obj.mac.Write(obj.nameSlice)
+	obj.mac.Write(dec)
+	dec = obj.mac.Sum(dec)
+	buf, err = encodeBase64(buf[:0], dec)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+
 }
 
 func TestSetAndGetCookie(t *testing.T) {
@@ -342,7 +374,7 @@ func TestSetAndGetCookie(t *testing.T) {
 		t.Errorf("unexpected error: %s", err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
-	outValue, err := obj.GetSecureValue(request)
+	outValue, err := obj.GetSecureValue(nil, request)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	} else if !bytes.Equal(outValue, inValue) {
@@ -351,7 +383,7 @@ func TestSetAndGetCookie(t *testing.T) {
 
 	// test retrieve non-existant cookie.
 	obj.name = "xxx"
-	outValue, err = obj.GetSecureValue(request)
+	outValue, err = obj.GetSecureValue(nil, request)
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	} else if outValue != nil {
@@ -359,6 +391,15 @@ func TestSetAndGetCookie(t *testing.T) {
 	}
 
 	// force too big cookie error
+	recorder = httptest.NewRecorder()
+	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
+	if err == nil {
+		t.Errorf("unexpected nil error")
+	}
+
+	// force encoding error
+	forceError = 1
+	defer func() { forceError = 0 }()
 	recorder = httptest.NewRecorder()
 	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
 	if err == nil {
@@ -449,6 +490,20 @@ func TestGorillaValueLen(t *testing.T) {
 	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
 }
 
+var buf = make([]byte, 128)
+
+func BenchmarkChmikeValueEncoding(b *testing.B) {
+	obj, err := New("test", make([]byte, KeyLen), Params{})
+	if err != nil {
+		panic(err)
+	}
+	value := []byte("some value")
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		obj.encodeValue(buf[:0], value)
+	}
+}
+
 func BenchmarkChmikeSetCookie(b *testing.B) {
 	var name = "test"
 	var inValue = []byte("some value")
@@ -514,11 +569,12 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	if err != nil {
 		panic(err)
 	}
+	out := make([]byte, len(inValue))
 	//fmt.Println("Chmike cookie:", recorder.HeaderMap["Set-Cookie"])
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		_, err := obj.GetSecureValue(request)
+		_, err := obj.GetSecureValue(out[:0], request)
 		if err != nil {
 			panic(err)
 		}

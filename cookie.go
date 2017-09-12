@@ -6,13 +6,14 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
-	"io"
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // KeyLen is the byte length of the key.
@@ -23,7 +24,7 @@ const KeyLen = 32
 // and hex.DecodeString(keyStr) to convert back from string to byte slice.
 func GenerateRandomKey() ([]byte, error) {
 	key := make([]byte, KeyLen)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil || forceError {
+	if err := fillRandom(key); err != nil {
 		return nil, err
 	}
 	return key, nil
@@ -44,19 +45,24 @@ type Params struct {
 
 // Obj is a validated cookie object.
 type Obj struct {
-	key      []byte
-	name     string
-	path     string
-	domain   string
-	maxAge   int
-	httpOnly bool
-	secure   bool
-	mac      hash.Hash
-	block    cipher.Block
+	key       []byte
+	name      string
+	nameSlice []byte
+	path      string
+	domain    string
+	maxAge    int
+	httpOnly  bool
+	secure    bool
+	mac       hash.Hash
+	block     cipher.Block
 }
 
 // New instantiate a validated cookie parameter field set with an associated key.
 func New(name string, key []byte, p Params) (*Obj, error) {
+	block, err := aes.NewCipher(key[len(key)/2:])
+	if err != nil {
+		return nil, err
+	}
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("key length is %d, expected %d", len(key), KeyLen)
 	}
@@ -72,20 +78,17 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if p.MaxAge < 0 {
 		return nil, errors.New("max age can't be negative")
 	}
-	block, err := aes.NewCipher(key[len(key)/2:])
-	if err != nil {
-		return nil, err
-	}
 	return &Obj{
-		key:      key,
-		name:     name,
-		path:     p.Path,
-		domain:   p.Domain,
-		maxAge:   p.MaxAge,
-		httpOnly: p.HTTPOnly,
-		secure:   p.Secure,
-		block:    block,
-		mac:      hmac.New(sha256.New, key[:len(key)/2]),
+		key:       key,
+		name:      name,
+		nameSlice: []byte(name),
+		path:      p.Path,
+		domain:    p.Domain,
+		maxAge:    p.MaxAge,
+		httpOnly:  p.HTTPOnly,
+		secure:    p.Secure,
+		block:     block,
+		mac:       hmac.New(sha256.New, key[:len(key)/2]),
 	}, nil
 }
 
@@ -198,7 +201,7 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
 	b = append(b, o.name...)
 	b = append(b, '=')
-	b, err := o.appendEncodedValue(b, v)
+	b, err := o.encodeValue(b, v)
 	if err != nil {
 		return err
 	}
@@ -227,56 +230,50 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	return nil
 }
 
-// appendEncodedValue appends the encoded value val to dst.
-// dst is allocated or grown if it is nil or too small.
+// encodeValue appends the encoded value val to dst.
+// dst is allocated if nil, or grown if too small.
 // Return dst and the error if any.
-func (o *Obj) appendEncodedValue(dst []byte, val []byte) ([]byte, error) {
-	encLen := encodedValueLen(len(val))
-	if cap(dst)-len(dst) < encLen {
-		tmp := make([]byte, len(dst), cap(dst)+encLen)
+func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
+	var maxBase64EncodingLen = ((1+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8 + 5) / 6
+	if cap(dst) < len(dst)+maxBase64EncodingLen {
+		tmp := make([]byte, len(dst), cap(dst)+maxBase64EncodingLen)
 		copy(tmp, dst)
 		dst = tmp
 	}
-	msgLen := len(val) + 5 + blockLen
-	msgLen -= blockLen + msgLen%3
-	buf := dst[len(dst) : len(dst)+msgLen]
-	msg := buf
-	rnd := buf[copy(buf, val):]
-	if _, err := io.ReadFull(rand.Reader, rnd); err != nil || forceError {
+	var msg = dst[len(dst) : len(dst)+1+ivLen+maxStampLen]
+	msg[0] = byte(encodingVersion) << 2
+	var iv = msg[1 : 1+ivLen]
+	if err := fillRandom(iv); err != nil {
 		return dst, err
 	}
-	rnd[len(rnd)-1] = (rnd[len(rnd)-1] & 0xFC) | byte(len(rnd))%3
+	var stamp = time.Now().Unix() - epochOffset
+	var stampLen = binary.PutUvarint(msg[1+ivLen:], uint64(stamp))
+	msg = msg[:1+ivLen+stampLen]
+	msg = append(msg, val...)
+	var paddingLen = (len(msg) + hmacLen) % 3
+	if paddingLen > 0 {
+		paddingLen = 3 - paddingLen
+		msg[0] |= byte(paddingLen)
+		msg = msg[:len(msg)+paddingLen]
+		if err := fillRandom(msg[len(msg)-paddingLen:]); err != nil {
+			return dst, err
+		}
+	}
+	o.xorCTRAES(iv, msg[1+ivLen:])
 	o.mac.Reset()
-	o.mac.Write(buf)
-	var mac [hmacLen]byte
-	o.mac.Sum(mac[:0])
-	buf = append(buf, mac[:blockLen]...)
-	iv := buf[msgLen:]
-	o.block.Encrypt(iv, iv)
-	o.xorCTRAES(iv, msg)
-	return appendEncodedBase64(dst, buf)
+	o.mac.Write(o.nameSlice)
+	o.mac.Write(msg)
+	return encodeBase64(dst, o.mac.Sum(msg))
 }
 
-// encodedValueLen return the encoded byte length of the value of valLen bytes.
-func encodedValueLen(valLen int) int {
-	l := valLen + 5 + blockLen
-	return ((l-l%3)*8 + 5) / 6
-}
-
-// appendEncodedBase64 appends the base64 encoding of src to dst.
-// dst is allocated or grown if it is nil or too small.
-// Return dst and the error if any. Requires len(src)%3 == 0.
-func appendEncodedBase64(dst, src []byte) ([]byte, error) {
+// encodBase64 appends the base64 encoding of src to dst.
+// Requires len(src)%3 == 0 && cap(dst) - len(dst) >= len(src)*4/3.
+// May encode src in place if src is just after dst.
+func encodeBase64(dst, src []byte) ([]byte, error) {
 	if len(src)%3 != 0 {
-		return dst, errors.New("invalid src size")
+		return dst, fmt.Errorf("invalid length %d, must be multiple of 3", len(src)%3)
 	}
-	encLen := (len(src)*8 + 5) / 6
-	srcIdx, dstIdx := len(src), len(dst)+encLen
-	if cap(dst) < dstIdx {
-		tmp := make([]byte, len(dst), dstIdx)
-		copy(tmp, dst)
-		dst = tmp
-	}
+	var srcIdx, dstIdx = len(src), len(dst) + (len(src)/3)*4
 	dst = dst[:dstIdx]
 	for srcIdx > 0 {
 		srcIdx--
@@ -314,55 +311,81 @@ func base64Char(b byte) byte {
 	return '_' // b == 63
 }
 
-// GetSecureValue return the decoded secure cookie value as a string or an error.
-func (o *Obj) GetSecureValue(r *http.Request) ([]byte, error) {
+// GetSecureValue appends the decoded secure cookie value to dst.
+// dst is allocated if nil, or grown if too small.
+func (o *Obj) GetSecureValue(dst []byte, r *http.Request) ([]byte, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {
 		return nil, err
 	}
-	return o.decodeValue(c.Value)
+	return o.decodeValue(dst, c.Value)
 }
 
-// decodeValue decode the encoded value val.
-// Requires: len(val) >= 28 && len(val)%4 == 0 && len(key) == KeyLen.
-func (o *Obj) decodeValue(val string) ([]byte, error) {
-	if len(val) < 28 {
-		return nil, errors.New("invalid value length")
+// decodeValue append the encoded value val to dst.
+// dst is allocated if nil, or grown if too small.
+// Requires: len(val) >= minEncLen && len(val)%4 == 0.
+func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
+	if len(val) < minEncLen {
+		return dst, errors.New("encoded value too short")
 	}
-	b, err := decodeBase64(val)
+	bPtr := bufPool.Get().(*[]byte)
+	b := (*bPtr)[:0]
+	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
+	b, err := decodeBase64(b, val)
 	if err != nil {
-		return nil, err
+		return dst, err
 	}
-	msgLen := len(b) - blockLen
-	msg, iv := b[:msgLen], b[msgLen:]
-	o.xorCTRAES(iv, msg)
-	o.block.Decrypt(iv, iv)
+	var version = int(b[0] >> 2)
+	if version != encodingVersion {
+		return dst, fmt.Errorf("invalid encoding version %d, expected value <= %d",
+			version, encodingVersion)
+	}
+	var valMac = b[len(b)-hmacLen:]
+	b = b[:len(b)-hmacLen]
 	o.mac.Reset()
-	o.mac.Write(msg)
+	o.mac.Write(o.nameSlice)
+	o.mac.Write(b)
 	var mac [hmacLen]byte
 	o.mac.Sum(mac[:0])
 	var x byte
-	for i := range iv {
-		x |= iv[i] ^ mac[i]
+	for i := range mac {
+		x |= valMac[i] ^ mac[i]
 	}
 	if x != 0 {
 		return nil, errors.New("MAC mismatch")
 	}
-	nRnd := int(3 + msg[msgLen-1]&0x3)
-	if nRnd == 6 {
-		return nil, errors.New("invalid number of random bytes")
+	var paddingLen = int(b[0] & 3)
+	if paddingLen > maxPaddingLen {
+		return dst, fmt.Errorf("invalid padding length %d, expected value <= %d",
+			paddingLen, maxPaddingLen)
 	}
-	return b[:msgLen-nRnd], nil
+	var iv = b[1 : 1+ivLen]
+	b = b[1+ivLen:]
+	o.xorCTRAES(iv, b)
+	stamp, stampLen := binary.Uvarint(b)
+	stamp += epochOffset
+	var valStamp = time.Unix(int64(stamp), 0)
+	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
+	if time.Now().Before(valStamp) || time.Now().After(maxStamp) {
+		return dst, errors.New("invalid time stamp")
+	}
+	return append(dst, b[stampLen:len(b)-paddingLen]...), nil
 }
 
-// appendDecodedBase64 base64 decode src and append the result to dst.
-// dst is allocated or grown if it is nil or too small.
-// Return dst and the error if any. Requires len(src)%4 == 0.
-func decodeBase64(src string) ([]byte, error) {
+// decodeBase64 append base64 encoded src to dst.
+// Return an error if len(src)%4 != 0 or src is not valid base64 encoding.
+// Requires cap(dst) - len(dst) >= (len(src)/4)*3.
+func decodeBase64(dst []byte, src string) ([]byte, error) {
 	if len(src)%4 != 0 {
-		return nil, errors.New("invalid src size")
+		return dst, fmt.Errorf("invalid length %d, must be multiple of 4", len(src)%4)
 	}
-	dst := make([]byte, (len(src)*6)/8)
+	var decLen = (len(src) / 4) * 3
+	if cap(dst)-len(dst) < decLen {
+		var tmp = make([]byte, len(dst), len(dst)+decLen)
+		copy(tmp, dst)
+		dst = tmp
+	}
+	dst = dst[:len(dst)+decLen]
 	var srcIdx, dstIdx int
 	for srcIdx < len(src) {
 		var v uint64
@@ -379,7 +402,7 @@ func decodeBase64(src string) ([]byte, error) {
 			} else if b == '_' {
 				v = (v << 6) | uint64(63)
 			} else {
-				return nil, errors.New("invalid base64 char")
+				return dst, errors.New("invalid base64 char")
 			}
 			srcIdx++
 		}
@@ -445,8 +468,37 @@ func (o *Obj) xorCTRAES(iv []byte, data []byte) {
 	}
 }
 
+// fillRandom fill b with cryptographically secure pseudorandom bytes.
+func fillRandom(b []byte) error {
+	if forceError == 0 {
+		_, err := rand.Read(b)
+		return err
+	}
+	if forceError == 1 {
+		return errors.New("force error")
+	}
+	forceError--
+	return nil
+}
+
+// encodingVersion is the version of the generated encoding.
+const encodingVersion = 0
+
+// epochOffset is the number of seconds to subtract to the unix time to get
+// the epoch used in these secure cookie.
+const epochOffset = 1505230500
+
 // hmacLen is the byte length of the hmac(SHA256) digest.
-const hmacLen = sha256.BlockSize
+const hmacLen = sha256.Size
+
+// ivLen is the byte length of the iv
+const ivLen = blockLen
+
+// maxStampLen is the maximum byte length of the time stamp (seconds).
+const maxStampLen = 10
+
+// maxPaddingLen is the maximum number of padding bytes.
+const maxPaddingLen = 2
 
 // blockLen is the byte length of an AES block.
 const blockLen = aes.BlockSize
@@ -454,11 +506,14 @@ const blockLen = aes.BlockSize
 // byteBlock is an array of blockLen bytes.
 type byteBlock [blockLen]byte
 
+// minEncLen is the minimum encoding length of a value.
+const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
+
 // maxCookieLen is the maximum len of a cookie
 const maxCookieLen = 4000
 
 // forceError is used for 100% test coverage
-var forceError bool
+var forceError int
 
 // buffer pool
 var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
