@@ -89,13 +89,13 @@ at the bottom of cookie_test.go file.
 
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
-|    Value bytes |       40 |      112 |
-|      Set ns/op |    11157 |    20521 |
-|      Get ns/op |    10772 |    22108 |
-|       Set B/op |     1631 |     3324 |
-|       Get B/op |     1656 |     2784 |
-|  Set allocs/op |       13 |       37 |
-|  Get allocs/op |       16 |       39 |
+|      Value len |       40 |      112 |
+|      Set ns/op |     4659 |    20214 |
+|      Get ns/op |     3720 |    20224 |
+|       Set B/op |      307 |     3324 |
+|       Get B/op |      312 |     2784 |
+|  Set allocs/op |        5 |       37 |
+|  Get allocs/op |        7 |       39 |
 
 ## Qualitative comparison with Gorilla's secure cookie
 
