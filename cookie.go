@@ -4,10 +4,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
@@ -50,6 +51,8 @@ type Obj struct {
 	maxAge   int
 	httpOnly bool
 	secure   bool
+	mac      hash.Hash
+	block    cipher.Block
 }
 
 // New instantiate a validated cookie parameter field set with an associated key.
@@ -69,6 +72,10 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if p.MaxAge < 0 {
 		return nil, errors.New("max age can't be negative")
 	}
+	block, err := aes.NewCipher(key[len(key)/2:])
+	if err != nil {
+		return nil, err
+	}
 	return &Obj{
 		key:      key,
 		name:     name,
@@ -77,6 +84,8 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		maxAge:   p.MaxAge,
 		httpOnly: p.HTTPOnly,
 		secure:   p.Secure,
+		block:    block,
+		mac:      hmac.New(sha256.New, key[:len(key)/2]),
 	}, nil
 }
 
@@ -189,7 +198,7 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
 	b = append(b, o.name...)
 	b = append(b, '=')
-	b, err := appendEncodedValue(b, v, o.key)
+	b, err := o.appendEncodedValue(b, v)
 	if err != nil {
 		return err
 	}
@@ -221,39 +230,36 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 // appendEncodedValue appends the encoded value val to dst.
 // dst is allocated or grown if it is nil or too small.
 // Return dst and the error if any.
-func appendEncodedValue(dst []byte, val []byte, key []byte) ([]byte, error) {
+func (o *Obj) appendEncodedValue(dst []byte, val []byte) ([]byte, error) {
 	encLen := encodedValueLen(len(val))
 	if cap(dst)-len(dst) < encLen {
 		tmp := make([]byte, len(dst), cap(dst)+encLen)
 		copy(tmp, dst)
 		dst = tmp
 	}
-	msgLen := len(val) + 5 + macLen
-	msgLen -= macLen + msgLen%3
+	msgLen := len(val) + 5 + blockLen
+	msgLen -= blockLen + msgLen%3
 	buf := dst[len(dst) : len(dst)+msgLen]
+	msg := buf
 	rnd := buf[copy(buf, val):]
 	if _, err := io.ReadFull(rand.Reader, rnd); err != nil || forceError {
 		return dst, err
 	}
 	rnd[len(rnd)-1] = (rnd[len(rnd)-1] & 0xFC) | byte(len(rnd))%3
-	mac := hmac.New(md5.New, key[:macLen])
-	mac.Write(buf)
-	msg := buf
-	buf = mac.Sum(buf)
-	block, err := aes.NewCipher(key[macLen:])
-	if err != nil {
-		return dst, err
-	}
+	o.mac.Reset()
+	o.mac.Write(buf)
+	var mac [hmacLen]byte
+	o.mac.Sum(mac[:0])
+	buf = append(buf, mac[:blockLen]...)
 	iv := buf[msgLen:]
-	block.Encrypt(iv, iv)
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(msg, msg)
+	o.block.Encrypt(iv, iv)
+	o.xorCTRAES(iv, msg)
 	return appendEncodedBase64(dst, buf)
 }
 
 // encodedValueLen return the encoded byte length of the value of valLen bytes.
 func encodedValueLen(valLen int) int {
-	l := valLen + 5 + macLen
+	l := valLen + 5 + blockLen
 	return ((l-l%3)*8 + 5) / 6
 }
 
@@ -314,12 +320,12 @@ func (o *Obj) GetSecureValue(r *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return decodeValue(c.Value, o.key)
+	return o.decodeValue(c.Value)
 }
 
 // decodeValue decode the encoded value val.
 // Requires: len(val) >= 28 && len(val)%4 == 0 && len(key) == KeyLen.
-func decodeValue(val string, key []byte) ([]byte, error) {
+func (o *Obj) decodeValue(val string) ([]byte, error) {
 	if len(val) < 28 {
 		return nil, errors.New("invalid value length")
 	}
@@ -327,18 +333,19 @@ func decodeValue(val string, key []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(key[macLen:])
-	if err != nil {
-		return nil, err
-	}
-	msgLen := len(b) - macLen
+	msgLen := len(b) - blockLen
 	msg, iv := b[:msgLen], b[msgLen:]
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(msg, msg)
-	block.Decrypt(iv, iv)
-	mac := hmac.New(md5.New, key[:macLen])
-	mac.Write(msg)
-	if !hmac.Equal(iv, mac.Sum(nil)) {
+	o.xorCTRAES(iv, msg)
+	o.block.Decrypt(iv, iv)
+	o.mac.Reset()
+	o.mac.Write(msg)
+	var mac [hmacLen]byte
+	o.mac.Sum(mac[:0])
+	var x byte
+	for i := range iv {
+		x |= iv[i] ^ mac[i]
+	}
+	if x != 0 {
 		return nil, errors.New("MAC mismatch")
 	}
 	nRnd := int(3 + msg[msgLen-1]&0x3)
@@ -413,8 +420,39 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 	return nil
 }
 
-// macLen is the byte length of the MAC.
-const macLen = md5.Size
+// xorCTRAES computes the xor of data with encrypted ctr counter initialized bith iv.
+func (o *Obj) xorCTRAES(iv []byte, data []byte) {
+	var ctr, bits byteBlock
+	for i := range ctr {
+		ctr[i] = iv[i]
+	}
+	for len(data) > blockLen {
+		o.block.Encrypt(bits[:], ctr[:])
+		for i := range bits {
+			data[i] ^= bits[i]
+		}
+		var b uint16
+		for i := blockLen - 1; i >= 0; i-- {
+			b += uint16(ctr[i])
+			ctr[i] = byte(b)
+			b >>= 8
+		}
+		data = data[blockLen:]
+	}
+	o.block.Encrypt(bits[:], ctr[:])
+	for i := range data {
+		data[i] ^= bits[i]
+	}
+}
+
+// hmacLen is the byte length of the hmac(SHA256) digest.
+const hmacLen = sha256.BlockSize
+
+// blockLen is the byte length of an AES block.
+const blockLen = aes.BlockSize
+
+// byteBlock is an array of blockLen bytes.
+type byteBlock [blockLen]byte
 
 // maxCookieLen is the maximum len of a cookie
 const maxCookieLen = 4000

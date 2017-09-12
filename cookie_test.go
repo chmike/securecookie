@@ -245,12 +245,12 @@ func TestEncodeDecodeValue(t *testing.T) {
 		{in: []byte{0, 1, 2, 3, 4, 5}},
 		{in: []byte{3, 200, 254}},
 	}
-	key, err := GenerateRandomKey()
+	obj, err := New("test", make([]byte, KeyLen), Params{})
 	if err != nil {
 		panic(err)
 	}
 	for _, test := range tests {
-		out, err := appendEncodedValue(nil, test.in, key)
+		out, err := obj.appendEncodedValue(nil, test.in)
 		if (err == nil) == test.encFail {
 			if err == nil {
 				t.Errorf("got nil encoding error, expected error for in: %+v", test.in)
@@ -258,7 +258,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := decodeValue(*(*string)(unsafe.Pointer(&out)), key)
+			in, err := obj.decodeValue(*(*string)(unsafe.Pointer(&out)))
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -275,45 +275,49 @@ func TestEncodeDecodeValue(t *testing.T) {
 }
 
 func TestDecodeValueErrors(t *testing.T) {
-	if _, err := decodeValue("", nil); err == nil {
+	obj, err := New("test", make([]byte, KeyLen), Params{})
+	if err != nil {
+		panic(err)
+	}
+	if _, err := obj.decodeValue(""); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	key := make([]byte, 32)
-	if _, err := decodeValue(" AAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := obj.decodeValue(" AAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key); err == nil {
+	if _, err := obj.decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA", key[:len(key)-1]); err == nil {
+	if _, err := obj.decodeValue("AAAAAAAAAAAAAAAAAAAAAAAAAAAA"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf := make([]byte, 5, 32)
 	buf[4] = 3 // set invalid number of random bytes
-	mac := hmac.New(md5.New, key[:macLen])
+	mac := hmac.New(md5.New, key[:blockLen])
 	mac.Write(buf)
 	ivPos := len(buf)
 	buf = mac.Sum(buf)
 	iv := buf[ivPos:]
-	block, _ := aes.NewCipher(key[macLen:])
+	block, _ := aes.NewCipher(key[blockLen:])
 	block.Encrypt(iv, iv)
 	stream := cipher.NewCTR(block, iv)
 	stream.XORKeyStream(buf[:ivPos], buf[:ivPos])
 	buf, _ = appendEncodedBase64(buf[:0], buf)
-	if _, err := decodeValue(*(*string)(unsafe.Pointer(&buf)), key); err == nil {
+	if _, err := obj.decodeValue(*(*string)(unsafe.Pointer(&buf))); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 }
 
 func TestEncodeValueErrors(t *testing.T) {
-	key := make([]byte, 32)
-	buf := make([]byte, 0, 28)
-	if _, err := appendEncodedValue(buf, []byte{}, key[:len(key)-1]); err == nil {
-		t.Errorf("unexpected nil error")
+	obj, err := New("test", make([]byte, KeyLen), Params{})
+	if err != nil {
+		panic(err)
 	}
+	buf := make([]byte, 0, 28)
 	forceError = true
 	defer func() { forceError = false }()
-	if _, err := appendEncodedValue(buf, []byte{}, key); err != nil {
+	if _, err := obj.appendEncodedValue(buf, []byte{}); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
@@ -356,14 +360,6 @@ func TestSetAndGetCookie(t *testing.T) {
 	// force too big cookie error
 	recorder = httptest.NewRecorder()
 	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
-	if err == nil {
-		t.Errorf("unexpected nil error")
-	}
-
-	// force encoding error
-	obj.key = obj.key[:len(obj.key)-1]
-	recorder = httptest.NewRecorder()
-	err = obj.SetSecureValue(recorder, inValue)
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	}
