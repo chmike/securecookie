@@ -191,8 +191,8 @@ But it is still possible for an attacker to trick your browser to send
 a request to the site without the user knowledge and consent. This is known as 
 a [CSRF](https://en.wikipedia.org/wiki/Cross-site_request_forgery) attack. 
 
-Consider this scenario witha Pizza ordering web site. First let see what 
-happens normally. 
+Consider this scenario with a Pizza ordering web site. First let see what 
+happens when everything goes as expected. 
 
 The user has to login the site to be allowed to order pizzas. During the
 login transaction a secure cookie is added into the user's browser. The user
@@ -203,14 +203,14 @@ path and domain match the one specified at the login transaction.
 
 When the server receive this request, it checks the cookie validity to 
 determine who that client is and if he is legitimate. All is fine. The order
-is then forwarded to the pizza chef. The pizza is later deliver to the 
+is then forwarded to the pizza chef. The pizza is later delivered to the 
 user.  
 
 Now comes the vilain. He set up some random site with a form and a validation 
 button that the victim will very likely click (e.g., "Subscribe to spam" with
 a *Please no* button as validation button). The vilain has set up the form 
 so that the URL associated to the validation button is the URL to order pizzas.
-He will have added a hidden field to order 10 pizzas. 
+He will have added a hidden field with the number of pizzas to order set to 10! 
 
 When the user click that validation button, his browser will send a request
 to pizza ordering site with the field value and the secure cookie since the
@@ -218,8 +218,9 @@ URL match the cookie path and domain.
 
 The pizza ordering site checks the secure cookie and it will be authenticated.
 It will assume that the user issued that order. When the delevery man rings at
-the user's door with 10 pizzas in his hand, there will be trouble and no way
-to know where it came from. 
+the user's door with 10 pizzas in his hand, there will be a conflict and no way
+to know to know who's fault it is. Notice how the value 10 associated with the
+cookie to the ordering request was not signed by the user's browser.  
 
 To avoid this, the solution is to add a way to authenticate the form response.
 This is done by adding a hidden field in the form with a random byte sequence,
