@@ -110,8 +110,8 @@ The latest version was updated to put the security in line with the Gorilla
 secure cookie. 
 
 - We both use CTR-AES-128 encryption with a 16 byte nonce, and HMAC-SHA-256. 
-- We both encrypt first then compute the MAC over the cihper text.
-- A curent time stamp is added to the encoded value.
+- We both encrypt first then compute the MAC over the cipher text.
+- A time stamp is added to the encoded value.
 - The hmac is computed over the cookie value name, the ciphered time stamp and 
   value.
 - Both packages don't take special measures to secure the secret key. 
@@ -119,19 +119,19 @@ secure cookie.
 
 The differences between the Gorilla secure cookie and this implementation are:
 
-- The code is more efficient although there is still room for improvement. 
-- The value encoding is more compact without loosing in decoding determinism. 
+- This code is more efficient, and there is still room for improvement. 
+- This secure value encoding is more compact without weakening the security. 
 - This secure cookie encoding is incompatible with other secure cookie encoding.
   I don't know the status of Gorilla's encoding. 
 - This encoding adds an encoding version number allowing to change or add new
   encoding without breaking backward compatibility. Gorilla doesn't have this. 
 
 This package and Gorilla provide both equivalently secure cookie if we discard
-the fact that no special measure is taken to conceal the key in memory. This 
-package is quite new and needs more reviews to validate the security of the 
-implementation.
+the fact that no special measure is taken to conceal the key in memory and the
+value length. This package is quite new and needs more reviews to validate the
+security of the implementation.
 
-Feedback and contribution are welcome. 
+Feedback and contributions are welcome. 
 
 ## Value encoding
 
