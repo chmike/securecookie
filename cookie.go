@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
@@ -246,8 +245,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	if err := fillRandom(iv); err != nil {
 		return dst, err
 	}
-	var stamp = time.Now().Unix() - epochOffset
-	var stampLen = binary.PutUvarint(msg[1+ivLen:], uint64(stamp))
+	var stampLen = encodeUint64(msg[1+ivLen:], uint64(time.Now().Unix())-epochOffset)
 	msg = msg[:1+ivLen+stampLen]
 	msg = append(msg, val...)
 	var paddingLen = (len(msg) + hmacLen) % 3
@@ -294,6 +292,19 @@ func encodeBase64(dst, src []byte) ([]byte, error) {
 	return dst, nil
 }
 
+// encodeUint64 encode v in b and return the bytes written.
+// panic if b is not big enough. Max encoding length is 10.
+func encodeUint64(b []byte, v uint64) int {
+	var n int
+	for v > 127 {
+		b[n] = 0x80 | byte(v)
+		v >>= 7
+		n++
+	}
+	b[n] = byte(v)
+	return n + 1
+}
+
 // base64Char converts a byte to Base64 URL encoding character.
 // The two most significant bits of b are ignored.
 // See https://tools.ietf.org/html/rfc4648#section-5.
@@ -328,8 +339,8 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	if len(val) < minEncLen {
 		return dst, errors.New("encoded value too short")
 	}
-	bPtr := bufPool.Get().(*[]byte)
-	b := (*bPtr)[:0]
+	var bPtr = bufPool.Get().(*[]byte)
+	var b = (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
 	b, err := decodeBase64(b, val)
 	if err != nil {
@@ -345,8 +356,9 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	o.mac.Reset()
 	o.mac.Write(o.nameSlice)
 	o.mac.Write(b)
-	var mac [hmacLen]byte
-	o.mac.Sum(mac[:0])
+	var mPtr = hmacBlockPool.Get().(*hmacBlock)
+	defer hmacBlockPool.Put(mPtr)
+	var mac = o.mac.Sum(mPtr[:0])
 	var x byte
 	for i := range mac {
 		x |= valMac[i] ^ mac[i]
@@ -360,16 +372,19 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 			paddingLen, maxPaddingLen)
 	}
 	var iv = b[1 : 1+ivLen]
-	b = b[1+ivLen:]
-	o.xorCTRAES(iv, b)
-	stamp, stampLen := binary.Uvarint(b)
+	var msg = b[1+ivLen:]
+	o.xorCTRAES(iv, msg)
+	stamp, stampLen := decodeUint64(msg)
+	if stampLen == 0 {
+		return dst, errors.New("invalid time stamp encoding")
+	}
 	stamp += epochOffset
 	var valStamp = time.Unix(int64(stamp), 0)
 	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
 	if time.Now().Before(valStamp) || time.Now().After(maxStamp) {
 		return dst, errors.New("invalid time stamp")
 	}
-	return append(dst, b[stampLen:len(b)-paddingLen]...), nil
+	return append(dst, msg[stampLen:len(msg)-paddingLen]...), nil
 }
 
 // decodeBase64 append base64 encoded src to dst.
@@ -416,6 +431,24 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 	return dst, nil
 }
 
+// decodeUint64 encode v in b and return the number of
+// bytes read. If that value is 0, no value was read.
+func decodeUint64(b []byte) (uint64, int) {
+	var v uint64
+	var s uint8
+	for i, c := range b {
+		if c < 0x80 {
+			if i > 9 || i == 9 && c > 1 {
+				return 0, 0
+			}
+			return v | uint64(c&0x7F)<<s, i + 1
+		}
+		v |= uint64(c&0x7F) << s
+		s += 7
+	}
+	return 0, 0
+}
+
 // Delete send a request to the remote user agent to delete the given
 // cookie. Note that the user agent may not execute the request.
 func (o *Obj) Delete(w http.ResponseWriter) error {
@@ -445,12 +478,15 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 
 // xorCTRAES computes the xor of data with encrypted ctr counter initialized bith iv.
 func (o *Obj) xorCTRAES(iv []byte, data []byte) {
-	var ctr, bits byteBlock
+	var buf = hmacBlockPool.Get().(*hmacBlock)
+	defer hmacBlockPool.Put(buf)
+	var ctr = buf[:blockLen]
+	var bits = buf[blockLen:]
 	for i := range ctr {
 		ctr[i] = iv[i]
 	}
 	for len(data) > blockLen {
-		o.block.Encrypt(bits[:], ctr[:])
+		o.block.Encrypt(bits, ctr)
 		for i := range bits {
 			data[i] ^= bits[i]
 		}
@@ -462,7 +498,7 @@ func (o *Obj) xorCTRAES(iv []byte, data []byte) {
 		}
 		data = data[blockLen:]
 	}
-	o.block.Encrypt(bits[:], ctr[:])
+	o.block.Encrypt(bits, ctr)
 	for i := range data {
 		data[i] ^= bits[i]
 	}
@@ -486,12 +522,15 @@ const encodingVersion = 0
 
 // epochOffset is the number of seconds to subtract to the unix time to get
 // the epoch used in these secure cookie.
-const epochOffset = 1505230500
+const epochOffset uint64 = 1505230500
 
 // hmacLen is the byte length of the hmac(SHA256) digest.
 const hmacLen = sha256.Size
 
-// ivLen is the byte length of the iv
+// hmacBlock is an array of hmacLen bytes.
+type hmacBlock [hmacLen]byte
+
+// ivLen is the byte length of the iv.
 const ivLen = blockLen
 
 // maxStampLen is the maximum byte length of the time stamp (seconds).
@@ -509,11 +548,14 @@ type byteBlock [blockLen]byte
 // minEncLen is the minimum encoding length of a value.
 const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
 
-// maxCookieLen is the maximum len of a cookie
+// maxCookieLen is the maximum len of a cookie.
 const maxCookieLen = 4000
 
-// forceError is used for 100% test coverage
+// forceError is used for 100% test coverage.
 var forceError int
 
-// buffer pool
+// buffer pool.
 var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
+
+// hmacBlockPool is a pool of hmac blocks.
+var hmacBlockPool = sync.Pool{New: func() interface{} { return new(hmacBlock) }}

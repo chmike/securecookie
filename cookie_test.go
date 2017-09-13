@@ -248,6 +248,67 @@ func TestDecodeBase64(t *testing.T) {
 	}
 }
 
+func bytes2Str(b []byte) string {
+	var out bytes.Buffer
+	out.Grow(len(b) * 6)
+	out.WriteByte('[')
+	for i := range b {
+		out.WriteString(fmt.Sprintf("0x%02X, ", b[i]))
+	}
+	res := out.Bytes()
+	res[len(res)-2] = ']'
+	return string(res[:len(res)-1])
+}
+
+func TestEncodedUint64(t *testing.T) {
+	tests := []struct {
+		in  uint64
+		out []byte
+	}{
+		{in: 0x0000000000000001, out: []byte{0x01}},
+		{in: 0x0000000000000080, out: []byte{0x80, 0x01}},
+		{in: 0x0000000000004000, out: []byte{0x80, 0x80, 0x01}},
+		{in: 0x0002000000000000, out: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}},
+		{in: 0x8000000000000000, out: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}},
+		{in: 0xFFFFFFFFFFFFFFFF, out: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}},
+	}
+	for _, test := range tests {
+		out := make([]byte, 10)
+		out = out[:encodeUint64(out, test.in)]
+		if !bytes.Equal(out, test.out) {
+			t.Errorf("got %s, expected %s for %#X", bytes2Str(out), bytes2Str(test.out), test.in)
+		}
+	}
+}
+
+func TestDecodeUint64(t *testing.T) {
+	tests := []struct {
+		in  []byte
+		out uint64
+		n   int
+	}{
+		{out: 0x0000000000000001, in: []byte{0x01}, n: 1},
+		{out: 0x0000000000000080, in: []byte{0x80, 0x01}, n: 2},
+		{out: 0x0000000000004000, in: []byte{0x80, 0x80, 0x01}, n: 3},
+		{out: 0x0002000000000000, in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}, n: 8},
+		{out: 0x8000000000000000, in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}, n: 10},
+		{out: 0xFFFFFFFFFFFFFFFF, in: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}, n: 10},
+		{in: nil},
+		{in: []byte{}},
+		{in: []byte{0x80}},
+		{in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80}},
+	}
+	for _, test := range tests {
+		out, n := decodeUint64(test.in)
+		if n != test.n {
+			t.Errorf("got n %d, expected %d", n, test.n)
+		}
+		if out != test.out {
+			t.Errorf("got 0x%X, expected 0x%X for %s", out, test.out, bytes2Str(test.in))
+		}
+	}
+}
+
 func TestEncodeDecodeValue(t *testing.T) {
 	tests := []struct {
 		in               []byte
@@ -322,6 +383,9 @@ func TestDecodeValueErrors(t *testing.T) {
 		t.Errorf("unexpected nil error")
 	}
 	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
 	buf[len(buf)-1]--
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
@@ -352,7 +416,32 @@ func TestDecodeValueErrors(t *testing.T) {
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-
+	// set an invalid stamp encoding
+	buf, err = obj.encodeValue(nil, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec, err = decodeBase64(nil, string(buf))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec = dec[:len(dec)-hmacLen]
+	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
+	for i := 1 + ivLen; i < 1+ivLen+10; i++ {
+		dec[i] |= 0x80
+	}
+	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
+	obj.mac.Reset()
+	obj.mac.Write(obj.nameSlice)
+	obj.mac.Write(dec)
+	dec = obj.mac.Sum(dec)
+	buf, err = encodeBase64(buf[:0], dec)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
 }
 
 func TestSetAndGetCookie(t *testing.T) {
@@ -490,9 +579,10 @@ func TestGorillaValueLen(t *testing.T) {
 	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
 }
 
-var buf = make([]byte, 128)
+var buf1 = make([]byte, 128)
+var buf2 = make([]byte, 128)
 
-func BenchmarkChmikeValueEncoding(b *testing.B) {
+func BenchmarkChmikeEncodeValue(b *testing.B) {
 	obj, err := New("test", make([]byte, KeyLen), Params{})
 	if err != nil {
 		panic(err)
@@ -500,7 +590,24 @@ func BenchmarkChmikeValueEncoding(b *testing.B) {
 	value := []byte("some value")
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		obj.encodeValue(buf[:0], value)
+		obj.encodeValue(buf1[:0], value)
+	}
+}
+
+func BenchmarkChmikeDecodeValue(b *testing.B) {
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	if err != nil {
+		panic(err)
+	}
+	value := []byte("some value")
+	b1, err := obj.encodeValue(buf1[:0], value)
+	if err != nil {
+		panic(err)
+	}
+	buf1Str := string(b1)
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		obj.decodeValue(buf2, buf1Str)
 	}
 }
 
@@ -561,7 +668,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, Params{})
+	obj, err := New(name, key, Params{MaxAge: 3600})
 	if err != nil {
 		panic(err)
 	}
