@@ -13,11 +13,11 @@ Feedback is welcome.
 ## Content
 
 - [Installation](#installation)
-- [Usage examples](#usage_examples)
+- [Usage examples](#usage-examples)
 - [Benchmarking](#benchmarking)
-- [Qualitative comparison](#qualitative_comparison)
-- [Value encoding](#value_encoding)
-- [Usage advise](#usage_advise)
+- [Qualitative comparison](#qualitative-comparison)
+- [Value encoding](#value-encoding)
+- [Usage advise](#usage-advise)
 
 ## Installation
 
