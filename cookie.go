@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash"
 	"net/http"
 	"strconv"
 	"sync"
@@ -52,7 +51,6 @@ type Obj struct {
 	maxAge    int
 	httpOnly  bool
 	secure    bool
-	mac       hash.Hash
 	block     cipher.Block
 }
 
@@ -87,7 +85,6 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		httpOnly:  p.HTTPOnly,
 		secure:    p.Secure,
 		block:     block,
-		mac:       hmac.New(sha256.New, key[:len(key)/2]),
 	}, nil
 }
 
@@ -258,10 +255,10 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 		}
 	}
 	o.xorCTRAES(iv, msg[1+ivLen:])
-	o.mac.Reset()
-	o.mac.Write(o.nameSlice)
-	o.mac.Write(msg)
-	return encodeBase64(dst, o.mac.Sum(msg))
+	var hm = hmac.New(sha256.New, o.key[:len(o.key)/2])
+	hm.Write(o.nameSlice)
+	hm.Write(msg)
+	return encodeBase64(dst, hm.Sum(msg))
 }
 
 // encodBase64 appends the base64 encoding of src to dst.
@@ -353,12 +350,12 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	}
 	var valMac = b[len(b)-hmacLen:]
 	b = b[:len(b)-hmacLen]
-	o.mac.Reset()
-	o.mac.Write(o.nameSlice)
-	o.mac.Write(b)
+	var hm = hmac.New(sha256.New, o.key[:len(o.key)/2])
+	hm.Write(o.nameSlice)
+	hm.Write(b)
 	var mPtr = hmacBlockPool.Get().(*hmacBlock)
 	defer hmacBlockPool.Put(mPtr)
-	var mac = o.mac.Sum(mPtr[:0])
+	var mac = hm.Sum(mPtr[:0])
 	var x byte
 	for i := range mac {
 		x |= valMac[i] ^ mac[i]

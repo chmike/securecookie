@@ -2,6 +2,8 @@ package cookie
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -405,10 +407,10 @@ func TestDecodeValueErrors(t *testing.T) {
 	}
 	dec[0] |= 3
 	dec = dec[:len(dec)-hmacLen]
-	obj.mac.Reset()
-	obj.mac.Write(obj.nameSlice)
-	obj.mac.Write(dec)
-	dec = obj.mac.Sum(dec)
+	var hm = hmac.New(sha256.New, obj.key[:len(obj.key)/2])
+	hm.Write(obj.nameSlice)
+	hm.Write(dec)
+	dec = hm.Sum(dec)
 	buf, err = encodeBase64(buf[:0], dec)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -431,10 +433,10 @@ func TestDecodeValueErrors(t *testing.T) {
 		dec[i] |= 0x80
 	}
 	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
-	obj.mac.Reset()
-	obj.mac.Write(obj.nameSlice)
-	obj.mac.Write(dec)
-	dec = obj.mac.Sum(dec)
+	hm.Reset()
+	hm.Write(obj.nameSlice)
+	hm.Write(dec)
+	dec = hm.Sum(dec)
 	buf, err = encodeBase64(buf[:0], dec)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
