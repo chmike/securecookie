@@ -1,6 +1,7 @@
 package cookie
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -48,6 +49,8 @@ type Obj struct {
 	nameSlice []byte
 	path      string
 	domain    string
+	begStr    string
+	endStr    string
 	maxAge    int
 	httpOnly  bool
 	secure    bool
@@ -75,12 +78,34 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if p.MaxAge < 0 {
 		return nil, errors.New("max age can't be negative")
 	}
+	var buf bytes.Buffer
+	if len(p.Path) > 0 {
+		buf.WriteString("; Path=")
+		buf.WriteString(p.Path)
+	}
+	if len(p.Domain) > 0 {
+		buf.WriteString("; Domain=")
+		buf.WriteString(p.Domain)
+	}
+	if p.MaxAge > 0 {
+		buf.WriteString("; Max-Age=")
+		buf.Write(strconv.AppendInt(nil, int64(p.MaxAge), 10))
+	}
+	if p.HTTPOnly {
+		buf.WriteString("; HttpOnly")
+	}
+	if p.Secure {
+		buf.WriteString("; Secure")
+	}
+	var begStr = name + "="
 	return &Obj{
 		key:       key,
-		name:      name,
+		name:      begStr[:len(name)],
 		nameSlice: []byte(name),
 		path:      p.Path,
 		domain:    p.Domain,
+		begStr:    begStr,
+		endStr:    buf.String(),
 		maxAge:    p.MaxAge,
 		httpOnly:  p.HTTPOnly,
 		secure:    p.Secure,
@@ -195,34 +220,15 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	b = append(b, o.name...)
-	b = append(b, '=')
 	b, err := o.encodeValue(b, v)
 	if err != nil {
 		return err
 	}
-	if len(o.path) > 0 {
-		b = append(b, "; Path="...)
-		b = append(b, o.path...)
+	var valLen = len(o.begStr) + len(b) + len(o.endStr)
+	if valLen > maxCookieLen {
+		return fmt.Errorf("cookie too long: len is %d, max is %d", valLen, maxCookieLen)
 	}
-	if len(o.domain) > 0 {
-		b = append(b, "; Domain="...)
-		b = append(b, o.domain...)
-	}
-	if o.maxAge > 0 {
-		b = append(b, "; Max-Age="...)
-		b = strconv.AppendInt(b, int64(o.maxAge), 10)
-	}
-	if o.httpOnly {
-		b = append(b, "; HttpOnly"...)
-	}
-	if o.secure {
-		b = append(b, "; Secure"...)
-	}
-	if len(b) > maxCookieLen {
-		return fmt.Errorf("cookie too long: len is %d, max is %d", len(b), maxCookieLen)
-	}
-	w.Header().Add("Set-Cookie", string(b))
+	w.Header().Add("Set-Cookie", o.begStr+string(b)+o.endStr)
 	return nil
 }
 
