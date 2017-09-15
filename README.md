@@ -97,12 +97,12 @@ the benchmark 10 times and taking the minimal value.
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
 |      Value len |       84 |      112 |
-|      Set ns/op |     5743 |    18735 |
-|      Get ns/op |     4098 |    19539 |
-|       Set B/op |      255 |     3324 |
-|       Get B/op |      200 |     2784 |
-|  Set allocs/op |        2 |       37 |
-|  Get allocs/op |        3 |       39 |
+|      Set ns/op |     6487 |    16165 |
+|      Get ns/op |     4728 |    17242 |
+|       Set B/op |      831 |     3324 |
+|       Get B/op |      680 |     2784 |
+|  Set allocs/op |        8 |       37 |
+|  Get allocs/op |        8 |       39 |
 
 ## Qualitative comparison
 
