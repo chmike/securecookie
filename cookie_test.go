@@ -408,7 +408,7 @@ func TestDecodeValueErrors(t *testing.T) {
 	dec[0] |= 3
 	dec = dec[:len(dec)-hmacLen]
 	var hm = hmac.New(sha256.New, obj.key[:len(obj.key)/2])
-	hm.Write(obj.nameSlice)
+	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
 	buf, err = encodeBase64(buf[:0], dec)
@@ -434,7 +434,7 @@ func TestDecodeValueErrors(t *testing.T) {
 	}
 	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
 	hm.Reset()
-	hm.Write(obj.nameSlice)
+	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
 	buf, err = encodeBase64(buf[:0], dec)

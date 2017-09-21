@@ -44,17 +44,18 @@ type Params struct {
 
 // Obj is a validated cookie object.
 type Obj struct {
-	key       []byte
-	name      string
-	nameSlice []byte
-	path      string
-	domain    string
-	begStr    string
-	endStr    string
-	maxAge    int
-	httpOnly  bool
-	secure    bool
-	block     cipher.Block
+	key      []byte
+	name     string
+	path     string
+	domain   string
+	begStr   string
+	endStr   string
+	maxAge   int
+	httpOnly bool
+	secure   bool
+	ipad     [sha256.BlockSize]byte
+	opad     [sha256.BlockSize]byte
+	block    cipher.Block
 }
 
 // New instantiate a validated cookie parameter field set with an associated key.
@@ -98,19 +99,29 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		buf.WriteString("; Secure")
 	}
 	var begStr = name + "="
-	return &Obj{
-		key:       key,
-		name:      begStr[:len(name)],
-		nameSlice: []byte(name),
-		path:      p.Path,
-		domain:    p.Domain,
-		begStr:    begStr,
-		endStr:    buf.String(),
-		maxAge:    p.MaxAge,
-		httpOnly:  p.HTTPOnly,
-		secure:    p.Secure,
-		block:     block,
-	}, nil
+	var o = &Obj{
+		key:      key,
+		name:     begStr[:len(name)],
+		path:     p.Path,
+		domain:   p.Domain,
+		begStr:   begStr,
+		endStr:   buf.String(),
+		maxAge:   p.MaxAge,
+		httpOnly: p.HTTPOnly,
+		secure:   p.Secure,
+		block:    block,
+	}
+	if len(key)/2 > sha256.BlockSize {
+		var digest = sha256.Sum256(key[:len(key)/2])
+		copy(o.ipad[:], digest[:])
+	} else {
+		copy(o.ipad[:], key[:len(key)/2])
+	}
+	for i := range o.ipad {
+		o.ipad[i] ^= 0x36
+		o.opad[i] = o.ipad[i] ^ 0x5C ^ 0x36
+	}
+	return o, nil
 }
 
 // checkName return an error if the cookie name is invalid.
@@ -236,35 +247,41 @@ func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
 // dst is allocated if nil, or grown if too small.
 // Return dst and the error if any.
 func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
-	var maxBase64EncodingLen = ((1+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8 + 5) / 6
-	if cap(dst) < len(dst)+maxBase64EncodingLen {
-		tmp := make([]byte, len(dst), cap(dst)+maxBase64EncodingLen)
-		copy(tmp, dst)
-		dst = tmp
+	var bPtr = bufPool.Get().(*[]byte)
+	defer bufPool.Put(bPtr)
+	var bLen = sha256.BlockSize + len(o.name) + ((1+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8+5)/6
+	if cap(*bPtr) < bLen {
+		*bPtr = make([]byte, bLen+20)
 	}
-	var msg = dst[len(dst) : len(dst)+1+ivLen+maxStampLen]
-	msg[0] = byte(encodingVersion) << 2
-	var iv = msg[1 : 1+ivLen]
+	var b = (*bPtr)[:cap(*bPtr)]
+	var endPos = copy(b, o.ipad[:])
+	endPos += copy(b[endPos:], o.name)
+	var encPos = endPos
+	b[endPos] = byte(encodingVersion) << 2
+	endPos++
+	var iv = b[endPos : endPos+ivLen]
 	if err := fillRandom(iv); err != nil {
 		return dst, err
 	}
-	var stampLen = encodeUint64(msg[1+ivLen:], uint64(time.Now().Unix())-epochOffset)
-	msg = msg[:1+ivLen+stampLen]
-	msg = append(msg, val...)
-	var paddingLen = (len(msg) + hmacLen) % 3
-	if paddingLen > 0 {
-		paddingLen = 3 - paddingLen
-		msg[0] |= byte(paddingLen)
-		msg = msg[:len(msg)+paddingLen]
-		if err := fillRandom(msg[len(msg)-paddingLen:]); err != nil {
-			return dst, err
-		}
+	endPos += ivLen
+	var xorPos = endPos
+	endPos += encodeUint64(b[endPos:], uint64(time.Now().Unix())-epochOffset)
+	endPos += copy(b[endPos:], val)
+	var nPad = (3 - (endPos+hmacLen-encPos)%3) % 3
+	b[encPos] |= byte(nPad)
+	if err := fillRandom(b[endPos : endPos+nPad]); err != nil {
+		return dst, err
 	}
-	o.xorCTRAES(iv, msg[1+ivLen:])
-	var hm = hmac.New(sha256.New, o.key[:len(o.key)/2])
-	hm.Write(o.nameSlice)
-	hm.Write(msg)
-	return encodeBase64(dst, hm.Sum(msg))
+	endPos += nPad
+	o.xorCTRAES(iv, b[xorPos:endPos])
+	endPos += o.hmacsha256(b[endPos:], b[:endPos])
+	var encLen = ((endPos-encPos)*8 + 5) / 6
+	if cap(dst) < len(dst)+encLen {
+		var tmp = make([]byte, len(dst), len(dst)+encLen)
+		copy(tmp, dst)
+		dst = tmp
+	}
+	return encodeBase64(dst, b[encPos:endPos])
 }
 
 // encodBase64 appends the base64 encoding of src to dst.
@@ -357,7 +374,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	var valMac = b[len(b)-hmacLen:]
 	b = b[:len(b)-hmacLen]
 	var hm = hmac.New(sha256.New, o.key[:len(o.key)/2])
-	hm.Write(o.nameSlice)
+	hm.Write([]byte(o.name))
 	hm.Write(b)
 	var mPtr = hmacBlockPool.Get().(*hmacBlock)
 	defer hmacBlockPool.Put(mPtr)
@@ -479,6 +496,16 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 	return nil
 }
 
+func (o *Obj) hmacsha256(b []byte, data1 []byte) int {
+	// ipad is already copied in front of the data
+	var data2 [sha256.BlockSize + sha256.Size]byte
+	copy(data2[:sha256.BlockSize], o.opad[:])
+	var digest = sha256.Sum256(data1)
+	copy(data2[sha256.BlockSize:], digest[:])
+	digest = sha256.Sum256(data2[:])
+	return copy(b, digest[:])
+}
+
 // xorCTRAES computes the xor of data with encrypted ctr counter initialized bith iv.
 func (o *Obj) xorCTRAES(iv []byte, data []byte) {
 	var buf = hmacBlockPool.Get().(*hmacBlock)
@@ -558,7 +585,7 @@ const maxCookieLen = 4000
 var forceError int
 
 // buffer pool.
-var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 64); return &b }}
+var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 128); return &b }}
 
 // hmacBlockPool is a pool of hmac blocks.
 var hmacBlockPool = sync.Pool{New: func() interface{} { return new(hmacBlock) }}
