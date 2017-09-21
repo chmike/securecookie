@@ -2,13 +2,13 @@
 
 This package provides functions to encode and decode secure cookie values.
 
-A secure cookie has its value encryted along with a MAC. This prevents the 
-remote cookie owner to know what information is stored in the cookie and 
+A secure cookie has its value encryted along with a MAC. This prevents the
+remote cookie owner to know what information is stored in the cookie and
 to modify it. It also prevent an attacker to forge a fake cookie.
 
-**Warning:** Because this package impacts security of web applications, 
-it is a critical functionaly. It still need reviews to be production ready. 
-Feedback is welcome. 
+**Warning:** Because this package impacts security of web applications,
+it is a critical functionaly. It still need reviews to be production ready.
+Feedback is welcome.
 
 ## Content
 
@@ -27,13 +27,14 @@ To intall or update the cookie package use the instruction:
 go get -u "github.com/chmike/cookie"
 ```
 
-## Usage examples 
+## Usage examples
 
 To use this cookie package in your server, add the following import.
 
 ``` Go
 import "github.com/chmike/cookie"
 ```
+
 ### Generating a random key
 
 It is strongly recommended to generate the random key with the following function.
@@ -42,16 +43,17 @@ Save the key in a file using hex.EncodeToString() and restrict access to that fi
 ``` Go
 var key []byte = cookie.GenerateRandomKey()
 ```
-To mitigate the risk that an attacker get the saved key, you might store a second 
-key in another place and use the xor of both keys as secure cookie key. The attacker 
-will have to get both keys which should be more difficult. 
+
+To mitigate the risk that an attacker get the saved key, you might store a second
+key in another place and use the xor of both keys as secure cookie key. The attacker
+will have to get both keys which should be more difficult.
 
 ### Instantiating a cookie object
 
 ``` Go
 params := Params{
     Path:     "/sec",
-    Domain:   "example.com", 
+    Domain:   "example.com",
     MaxAge:   3600,
     HTTPOnly: true,
     Secure:   true,
@@ -85,53 +87,53 @@ The returned value is of type []byte.
 err := obj.Delete(r) // r is the *http.Request
 ```
 
-Note: don't rely on the assumption that the remote user agent (browser) will 
+Note: don't rely on the assumption that the remote user agent (browser) will
 effectively delete the cookie.
 
 ## Benchmarking
 
 Encoding the cookie named "test" with value "some value". See benchmark functions
 at the bottom of cookie_test.go file. The ns/op values were obtained by running
-the benchmark 10 times and taking the minimal value.  
+the benchmark 10 times and taking the minimal value.
 
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
 |      Value len |       84 |      112 |
-|      Set ns/op |     6487 |    16165 |
-|      Get ns/op |     4728 |    17242 |
-|       Set B/op |      831 |     3324 |
-|       Get B/op |      680 |     2784 |
-|  Set allocs/op |        8 |       37 |
-|  Get allocs/op |        8 |       39 |
+|      Set ns/op |     5713 |    15417 |
+|      Get ns/op |     3509 |    14006 |
+|       Set B/op |      356 |     3324 |
+|       Get B/op |      200 |     2784 |
+|  Set allocs/op |        3 |       37 |
+|  Get allocs/op |        3 |       39 |
 
 ## Qualitative comparison
 
-The latest version was updated to put the security in line with the Gorilla 
-secure cookie. 
+The latest version was updated to put the security in line with the Gorilla
+secure cookie.
 
-- We both use CTR-AES-128 encryption with a 16 byte nonce, and HMAC-SHA-256. 
+- We both use CTR-AES-128 encryption with a 16 byte nonce, and HMAC-SHA-256.
 - We both encrypt first then compute the MAC over the cipher text.
 - A time stamp is added to the encoded value.
-- The hmac is computed over the cookie value name, the ciphered time stamp and 
+- The hmac is computed over the cookie value name, the ciphered time stamp and
   value.
-- Both packages don't take special measures to secure the secret key. 
+- Both packages don't take special measures to secure the secret key.
 - Both packages don't effectively conceal the value byte length.
 
 The differences between the Gorilla secure cookie and this implementation are:
 
-- This code is more efficient, and there is still room for improvement. 
-- This secure value encoding is more compact without weakening the security. 
+- This code is more efficient, and there is still room for improvement.
+- This secure value encoding is more compact without weakening the security.
 - This secure cookie encoding is incompatible with other secure cookie encoding.
-  I don't know the status of Gorilla's encoding. 
+  I don't know the status of Gorilla's encoding.
 - This encoding adds an encoding version number allowing to change or add new
-  encoding without breaking backward compatibility. Gorilla doesn't have this. 
+  encoding without breaking backward compatibility. Gorilla doesn't have this.
 
 This package and Gorilla provide both equivalently secure cookie if we discard
 the fact that no special measure is taken to conceal the key in memory and the
 value length. This package is quite new and needs more reviews to validate the
 security of the implementation.
 
-Feedback and contributions are welcome. 
+Feedback and contributions are welcome.
 
 ## Value encoding
 
@@ -139,108 +141,107 @@ Feedback and contributions are welcome.
 
     [tag][nonce][stamp][value][padding]
 
-   - The tag is 1 byte. The 6 most significant bits encode the version number
-     of the encoding (currently 0). The 2 less significant bits encode the number
-     of padding bytes (0, 1 or 2). 3 is an invalid padding length. The number is
-     picked so that the total length including the MAC is a multiple of 3. This
-     simplifies base64 encoding by avoiding it's padding. 
-   - The nonce is 16 byte long (AES block length) and contains cryptographically 
-     secure pseudo random bytes. 
-   - The stamp is the unix time subtracted by an epochOffset value (1505230500),
-     and encoded using the [LEB128 encoding](https://en.wikipedia.org/wiki/LEB128).
-   - The value is a copy of the user provided value to secure. 
-   - The padding bytes are cryptographically secure pseudo random bytes. There may
-     be 0 to 2 padding bytes. The number is picked so that the total length 
-     including the MAC is a multiple of 3. This simplifies base64 encoding by 
-     avoiding it's padding. 
+  - The tag is 1 byte. The 6 most significant bits encode the version number
+    of the encoding (currently 0). The 2 less significant bits encode the number
+    of padding bytes (0, 1 or 2). 3 is an invalid padding length. The number is
+    picked so that the total length including the MAC is a multiple of 3. This
+    simplifies base64 encoding by avoiding it's padding.
+  - The nonce is 16 byte long (AES block length) and contains cryptographically
+    secure pseudo random bytes.
+  - The stamp is the unix time subtracted by an epochOffset value (1505230500),
+    and encoded using the [LEB128 encoding](https://en.wikipedia.org/wiki/LEB128).
+  - The value is a copy of the user provided value to secure.
+  - The padding bytes are cryptographically secure pseudo random bytes. There may
+    be 0 to 2 padding bytes. The number is picked so that the total length
+    including the MAC is a multiple of 3. This simplifies base64 encoding by
+    avoiding it's padding.
 
-2. The stamp, value and padding bytes are ciphered using CTR-AES with the 16 last 
-   bytes of the key as ciphering key. The nonce is used as iv and counter 
-   initialization value. The tag and nonce are left unciphered. 
+2. The stamp, value and padding bytes are ciphered using CTR-AES with the 16 last
+   bytes of the key as ciphering key. The nonce is used as iv and counter
+   initialization value. The tag and nonce are left unciphered.
 
 3. An HMAC-SHA-256 is computed over (1) the cookie name and (2) the bytes sequence
    obtained after step 2. The 32 byte long MAC is appended after the padding.
 
 4. The whole byte sequence, form the tag to the last byte of the MAC is encoded in
    [Base64 using the URL encoding](https://tools.ietf.org/html/rfc4648#section-5).
-   There is no padding since the byte length is a multiple of 3 bytes. 
+   There is no padding since the byte length is a multiple of 3 bytes.
 
 The tag which provides an encoding version allows to completely change the encoding
-while preserving backward compatibilty if required. 
+while preserving backward compatibilty if required.
 
 ## Contributors
 
-- lstokeworth (reddit): 
-    - suggest to replace `copy` with `append`, 
-    - remove the Expires Params field and use only the MaxAge,
-    - provide a constant date in the past for Delete.
-- cstockton (github): 
-    - critical [bug report](https://github.com/chmike/cookie/issues/1),
-    - suggest simpler API.
-
+- lstokeworth (reddit):
+  - suggest to replace `copy` with `append`,
+  - remove the Expires Params field and use only the MaxAge,
+  - provide a constant date in the past for Delete.
+- cstockton (github):
+  - critical [bug report](https://github.com/chmike/cookie/issues/1),
+  - suggest simpler API.
 
 ## Usage advise
 
-It is very important to understand that the security is limited to the cookie 
-content. Nothing proves that the other data received by the server with a 
+It is very important to understand that the security is limited to the cookie
+content. Nothing proves that the other data received by the server with a
 secure cookie has been created by the user's request.
 
-When you have properly set the domain path, and HTTPOnly with the 
-Secure flag, and use HTTPS, only the user browser can send the cookie. 
+When you have properly set the domain path, and HTTPOnly with the
+Secure flag, and use HTTPS, only the user browser can send the cookie.
 But it is still possible for an attacker to trick your browser to send
-a request to the site without the user knowledge and consent. This is known as 
-a [CSRF](https://en.wikipedia.org/wiki/Cross-site_request_forgery) attack. 
+a request to the site without the user knowledge and consent. This is known as
+a [CSRF](https://en.wikipedia.org/wiki/Cross-site_request_forgery) attack.
 
-Consider this scenario with a Pizza ordering web site. First let see what 
-happens when everything goes as expected. 
+Consider this scenario with a Pizza ordering web site. First let see what
+happens when everything goes as expected.
 
 The user has to login the site to be allowed to order pizzas. During the
 login transaction a secure cookie is added into the user's browser. The user
-is then shown a form with the number of pizzas to order. When the user clicks 
-the *Order* button, his browser will make a request to an URL provided with 
-the form. It will join the field values and the secure cookie since the URL 
-path and domain match the one specified at the login transaction. 
+is then shown a form with the number of pizzas to order. When the user clicks
+the *Order* button, his browser will make a request to an URL provided with
+the form. It will join the field values and the secure cookie since the URL
+path and domain match the one specified at the login transaction.
 
-When the server receive this request, it checks the cookie validity to 
+When the server receive this request, it checks the cookie validity to
 determine who that client is and if he is legitimate. All is fine. The order
-is then forwarded to the pizza chef. The pizza is later delivered to the 
-user.  
+is then forwarded to the pizza chef. The pizza is later delivered to the
+user.
 
-Now comes the vilain. He set up some random site with a form and a validation 
+Now comes the vilain. He set up some random site with a form and a validation
 button that the victim will very likely click (e.g., "Subscribe to spam" with
-a *Please no* button as validation button). The vilain has set up the form 
+a *Please no* button as validation button). The vilain has set up the form
 so that the URL associated to the validation button is the URL to order pizzas.
-He will have added a hidden field with the number of pizzas to order set to 10! 
+He will have added a hidden field with the number of pizzas to order set to 10!
 
 When the user click that validation button, his browser will send a request
 to pizza ordering site with the field value and the secure cookie since the
-URL match the cookie path and domain. 
+URL match the cookie path and domain.
 
 The pizza ordering site checks the secure cookie and it will be authenticated.
 It will assume that the user issued that order. When the delevery man rings at
 the user's door with 10 pizzas in his hand, there will be a conflict and no way
 to know to know who's fault it is. Notice how the value 10 associated with the
-cookie to the ordering request was not signed by the user's browser.  
+cookie to the ordering request was not signed by the user's browser.
 
 To avoid this, the solution is to add a way to authenticate the form response.
 This is done by adding a hidden field in the form with a random byte sequence,
 and set a secure cookie with that byte sequence as value and a validity date
-limit. When the user fill that form, the server will receive back the secure 
-cookie and the hidden field value. The server then check that they match to 
-validate the response. 
+limit. When the user fill that form, the server will receive back the secure
+cookie and the hidden field value. The server then check that they match to
+validate the response.
 
 An attacker can forge a random byte sequence, but can't forge the secure cookie
-that goes with it. 
+that goes with it.
 
 Note that this protection is void in case of XSS attack (script injection).
 
-The above method works with forms, not with REST API like requests because the 
-server can't send the random token to the client that can use as challenge. 
-For REST API like authenticated transactions, the client and server have to 
+The above method works with forms, not with REST API like requests because the
+server can't send the random token to the client that can use as challenge.
+For REST API like authenticated transactions, the client and server have to
 both know a secret byte sequence they use to compute a hmac value over the URI,
 the method, the data and a message sequence number. They can then authenticate
-the message and the source. 
+the message and the source.
 
-The secret byte sequence can be determined in the authentication transaction 
+The secret byte sequence can be determined in the authentication transaction
 with public and private keys. There is no need for TLS to securly authenticate
-the client and server. A secret cookie is no help here. 
+the client and server. A secret cookie is no help here.
