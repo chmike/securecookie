@@ -581,35 +581,30 @@ func TestGorillaValueLen(t *testing.T) {
 	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
 }
 
-var buf1 = make([]byte, 128)
-var buf2 = make([]byte, 128)
+var buf1 = make([]byte, 512)
+var buf2 = make([]byte, 512)
+var val = []byte("some value")
+var obj = MustNew("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+var res []byte
+var enc string
 
 func BenchmarkChmikeEncodeValue(b *testing.B) {
-	obj, err := New("test", make([]byte, KeyLen), Params{})
-	if err != nil {
-		panic(err)
-	}
-	value := []byte("some value")
-	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		obj.encodeValue(buf1[:0], value)
+		obj.encodeValue(buf1[:0], val)
 	}
 }
 
+func init() {
+	b1, err := obj.encodeValue(buf1[:0], val)
+	if err != nil {
+		panic(err)
+	}
+	enc = string(b1)
+}
+
 func BenchmarkChmikeDecodeValue(b *testing.B) {
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
-	if err != nil {
-		panic(err)
-	}
-	value := []byte("some value")
-	b1, err := obj.encodeValue(buf1[:0], value)
-	if err != nil {
-		panic(err)
-	}
-	buf1Str := string(b1)
-	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		obj.decodeValue(buf2, buf1Str)
+		obj.decodeValue(buf2[:0], enc)
 	}
 }
 

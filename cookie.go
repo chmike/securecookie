@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -56,6 +55,16 @@ type Obj struct {
 	ipad     [sha256.BlockSize]byte
 	opad     [sha256.BlockSize]byte
 	block    cipher.Block
+}
+
+// MustNew panic if New return a non-nil error, otherwise return o.
+// MustNew is to instantiate global variables.
+func MustNew(name string, key []byte, p Params) *Obj {
+	o, err := New(name, key, p)
+	if err != nil {
+		panic(err)
+	}
+	return o
 }
 
 // New instantiate a validated cookie parameter field set with an associated key.
@@ -360,41 +369,44 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 		return dst, errors.New("encoded value too short")
 	}
 	var bPtr = bufPool.Get().(*[]byte)
-	var b = (*bPtr)[:0]
-	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	b, err := decodeBase64(b, val)
+	defer bufPool.Put(bPtr)
+	var bLen = sha256.BlockSize + len(o.name) + len(val)
+	if cap(*bPtr) < bLen {
+		*bPtr = make([]byte, bLen+20)
+	}
+	var b = (*bPtr)[:cap(*bPtr)]
+	var endPos = copy(b, o.ipad[:])
+	endPos += copy(b[endPos:], o.name)
+	var encPos = endPos
+	b, err := decodeBase64(b[:encPos], val)
 	if err != nil {
 		return dst, err
 	}
-	var version = int(b[0] >> 2)
+	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
 	if version != encodingVersion {
 		return dst, fmt.Errorf("invalid encoding version %d, expected value <= %d",
 			version, encodingVersion)
 	}
+	if nPad > maxPaddingLen {
+		return dst, fmt.Errorf("invalid padding length %d, expected value <= %d",
+			nPad, maxPaddingLen)
+	}
 	var valMac = b[len(b)-hmacLen:]
 	b = b[:len(b)-hmacLen]
-	var hm = hmac.New(sha256.New, o.key[:len(o.key)/2])
-	hm.Write([]byte(o.name))
-	hm.Write(b)
-	var mPtr = hmacBlockPool.Get().(*hmacBlock)
-	defer hmacBlockPool.Put(mPtr)
-	var mac = hm.Sum(mPtr[:0])
+	var locMac [hmacLen]byte
+	o.hmacsha256(locMac[:], b)
+	b = b[encPos:]
 	var x byte
-	for i := range mac {
-		x |= valMac[i] ^ mac[i]
+	for i := range locMac {
+		x |= valMac[i] ^ locMac[i]
 	}
 	if x != 0 {
 		return nil, errors.New("MAC mismatch")
 	}
-	var paddingLen = int(b[0] & 3)
-	if paddingLen > maxPaddingLen {
-		return dst, fmt.Errorf("invalid padding length %d, expected value <= %d",
-			paddingLen, maxPaddingLen)
-	}
 	var iv = b[1 : 1+ivLen]
-	var msg = b[1+ivLen:]
-	o.xorCTRAES(iv, msg)
-	stamp, stampLen := decodeUint64(msg)
+	b = b[1+ivLen:]
+	o.xorCTRAES(iv, b)
+	stamp, stampLen := decodeUint64(b)
 	if stampLen == 0 {
 		return dst, errors.New("invalid time stamp encoding")
 	}
@@ -404,7 +416,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	if time.Now().Before(valStamp) || time.Now().After(maxStamp) {
 		return dst, errors.New("invalid time stamp")
 	}
-	return append(dst, msg[stampLen:len(msg)-paddingLen]...), nil
+	return append(dst, b[stampLen:len(b)-nPad]...), nil
 }
 
 // decodeBase64 append base64 encoded src to dst.
@@ -415,13 +427,13 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 		return dst, fmt.Errorf("invalid length %d, must be multiple of 4", len(src)%4)
 	}
 	var decLen = (len(src) / 4) * 3
-	if cap(dst)-len(dst) < decLen {
+	var srcIdx, dstIdx = 0, len(dst)
+	if cap(dst) < len(dst)+decLen {
 		var tmp = make([]byte, len(dst), len(dst)+decLen)
 		copy(tmp, dst)
 		dst = tmp
 	}
 	dst = dst[:len(dst)+decLen]
-	var srcIdx, dstIdx int
 	for srcIdx < len(src) {
 		var v uint64
 		for i := 0; i < 4; i++ {
