@@ -283,7 +283,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	}
 	endPos += nPad
 	o.xorCtrAes(iv, b[xorPos:endPos])
-	endPos += o.hmacsha256(b[endPos:], b[:endPos])
+	endPos += o.hmacSha256(b[endPos:], b[:endPos])
 	var encLen = ((endPos-encPos)*8 + 5) / 6
 	if cap(dst) < len(dst)+encLen {
 		var tmp = make([]byte, len(dst), len(dst)+encLen)
@@ -394,7 +394,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	var valMac = b[len(b)-hmacLen:]
 	b = b[:len(b)-hmacLen]
 	var locMac [hmacLen]byte
-	o.hmacsha256(locMac[:], b)
+	o.hmacSha256(locMac[:], b)
 	b = b[encPos:]
 	var x byte
 	for i := range locMac {
@@ -508,7 +508,7 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 	return nil
 }
 
-func (o *Obj) hmacsha256(b []byte, data1 []byte) int {
+func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
 	// ipad is already copied in front of the data
 	var data2 [sha256.BlockSize + sha256.Size]byte
 	copy(data2[:sha256.BlockSize], o.opad[:])

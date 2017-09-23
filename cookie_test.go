@@ -336,6 +336,29 @@ func TestXorCtrAes(t *testing.T) {
 	}
 }
 
+func TestHmacSha256(t *testing.T) {
+	var txt = []byte(strings.Repeat("test ", 10))
+	var key = make([]byte, aes.BlockSize*2)
+	obj, err := New("name", key, Params{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	var mac1 = make([]byte, hmacLen)
+	// ipad must be prepended to the txt to hash
+	var tmp = make([]byte, sha256.BlockSize+len(txt))
+	copy(tmp[copy(tmp, obj.ipad[:]):], txt)
+	var n = obj.hmacSha256(mac1, tmp)
+	if n != len(mac1) {
+		t.Fatalf("got n %d, expected %d", n, len(mac1))
+	}
+	var mac = hmac.New(sha256.New, key[:len(key)/2])
+	mac.Write(txt)
+	var mac2 = mac.Sum(nil)
+	if !bytes.Equal(mac1, mac2) {
+		t.Errorf("got mac: \n%s\n expected mac: \n%s", bytes2Str(mac1), bytes2Str(mac2))
+	}
+}
+
 func TestEncodeDecodeValue(t *testing.T) {
 	tests := []struct {
 		in               []byte
