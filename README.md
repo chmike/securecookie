@@ -1,3 +1,5 @@
+[![GoDoc](https://godoc.org/github.com/chmike/securecookie?status.svg)](https://godoc.org/github.com/chmike/securecookie)
+
 # Encode and Decode secure cookies
 
 This package provides functions to encode and decode secure cookie values.
