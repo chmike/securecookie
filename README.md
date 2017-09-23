@@ -76,15 +76,21 @@ if err != nil {
 ```
 
 It is also possible to instantiate a secure cookie object without returning
-an error and panic if an argument is invalid.
+an error and panic if an argument is invalid. In the following example,
+`Auth` is the cookie name and the Path is `/sec`. A secured value may be stored
+in the remote browse by calling the `SetCookie()` method. After that, every 
+subsequent requests from that browser with a URL starting with `/sec` will have
+the cookie sent along. Calling the method `GetValue()` will extract the  secure
+value from the request. A request to delete the cookie may be send to the 
+remote browser by calling the method `Delete()`.
 
 ``` Go
 var obj = securecookie.MustNew("Auth", key, securecookie.Params{
-    Path:     "/sec",
-    Domain:   "example.com",
-    MaxAge:   3600,
-    HTTPOnly: true,
-    Secure:   true,
+		Path:     "/sec",        // cookie is sent only when URL start with this path
+		Domain:   "example.com", // cookie is sent only when URL domain match this one
+		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it's set
+		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts 
+		Secure:   true,          // cookie is only sent with HTTPS, never with HTTP
 }
 ```
 
@@ -93,8 +99,9 @@ Remember that the key should not be stored in the source code or in a repository
 ### Adding a secure cookie to a server response
 
 ``` Go
-err = obj.SetSecureValue(w, []byte("some value")) // w is the http.ResponseWriter
-if err != nil {
+var val = []byte("some value")
+// with w as the http.ResponseWriter
+if err := obj.SetValue(w, val); err != nil {
     // ...
 }
 ```
@@ -102,7 +109,8 @@ if err != nil {
 ### Decoding a secure cookie value
 
 ``` Go
-value, err := obj.GetSecureValue(r) // r is the *http.Request
+// with r as the *http.Request
+val, err := obj.GetValue(r) 
 if err != nil {
   // ...
 }
@@ -113,13 +121,14 @@ The returned value is of type []byte.
 ### Deleting a cookie
 
 ``` Go
-if err := obj.Delete(r); err != nil { // r is the *http.Request
+// with r as the *http.Request
+if err := obj.Delete(r); err != nil {
   // ...
 }
 ```
 
-Note: don't rely on the assumption that the remote user agent (browser) will effectively delete the cookie. Evil users will try anything to 
-break your site. 
+Note: don't rely on the assumption that the remote user agent (browser) will
+effectively delete the cookie. Evil users will try anything to break your site.
 
 ## Benchmarking
 
