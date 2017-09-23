@@ -8,13 +8,13 @@ in the cookie and to modify it. It also prevent an attacker to forge a fake
 cookie.
 
 This package differ from the gorilla secure cookie in that its encoding and
-decoding is 3 times faster and need no heap allocation, while the security
-remains equivalent. 
+decoding is 3 times faster and needs no heap allocation with an equivalent
+security strength. Both use AES128 and SHA256 to secure the value.
 
 **Note:** This package uses its own secure cookie value encoding. It is thus
 incompatible with Gorilla secure cookie package and the one provided with other
 langage frameworks. This encoding is simpler and more efficient, and adds a
-version number to suuport evolution with backward compatibility. 
+version number to support evolution with backward compatibility. 
 
 **Warning:** Because this package impacts security of web applications,
 it is a critical functionaly. It still need reviews to be production ready.
