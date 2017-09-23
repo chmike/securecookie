@@ -137,6 +137,7 @@ The differences between the Gorilla secure cookie and this implementation are:
   I don't know the status of Gorilla's encoding.
 - This encoding adds an encoding version number allowing to change or add new
   encoding without breaking backward compatibility. Gorilla doesn't have this.
+- This package provides a Delete cookie method.
 
 This package and Gorilla provide both equivalently secure cookie if we discard
 the fact that no special measure is taken to conceal the key in memory and the
