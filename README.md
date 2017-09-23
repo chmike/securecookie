@@ -107,9 +107,12 @@ if err := obj.SetValue(w, val); err != nil {
 
 ### Decoding a secure cookie value
 
+The value is appended to the given buffer. If buf is nil a new buffer is
+allocated. If buf is too small it is grown. 
+
 ``` Go
 // with r as the *http.Request
-val, err := obj.GetValue(r) 
+val, err := obj.GetValue(buf, r) 
 if err != nil {
   // ...
 }

@@ -1,6 +1,5 @@
 /*
-Package securecookie provides functions to encode and decode secure cookie
-values.
+Package securecookie is a fast, efficient and safe cookie value encoder/decoder.
 
 A secure cookie has its value ciphered and signed with a message authentication
 code. This prevents the remote cookie owner to know what information is stored
@@ -34,9 +33,10 @@ http.ResponseWriter. Note that obj is not modified by this call.
 	}
 
 You may than get the secure value with r being the *http.Request. Note
-that obj is not modified by this call.
+that obj is not modified by this call. The value is appended to buf. If
+buf is nil, a new buffer is allocated. If it's too small, it is grown.
 
-    val, err := obj.GetValue(r)
+    val, err := obj.GetValue(buf, r)
 	if err != nil {
 		// ...
 	}
