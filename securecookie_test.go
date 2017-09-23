@@ -430,6 +430,14 @@ func TestEncodeValueErrors(t *testing.T) {
 	}
 }
 
+func purgeBufPool() {
+	for {
+		var bPtr = bufPool.Get().(*[]byte)
+		if len(*bPtr) == 0 {
+			break
+		}
+	}
+}
 func TestDecodeValueErrors(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
 	if err != nil {
@@ -501,14 +509,7 @@ func TestDecodeValueErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	// purge bufPool
-	for {
-		var bPtr = bufPool.Get().(*[]byte)
-		if len(*bPtr) == 0 {
-			break
-		}
-	}
-
+	purgeBufPool()
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -540,7 +541,7 @@ func TestSetAndGetCookie(t *testing.T) {
 		t.Errorf("got value '%s', expected '%s'", outValue, inValue)
 	}
 
-	// test retrieve non-existant cookie.
+	// test retrieve non-existent cookie.
 	obj.name = "xxx"
 	outValue, err = obj.GetValue(nil, request)
 	if err == nil {
@@ -567,11 +568,7 @@ func TestSetAndGetCookie(t *testing.T) {
 }
 
 func TestDeleteCookie(t *testing.T) {
-	// purge bufPool
-	bPtr := bufPool.Get().(*[]byte)
-	if len(*bPtr) > 64 {
-		bPtr = bufPool.Get().(*[]byte)
-	}
+	purgeBufPool()
 	p := Params{
 		Path:     "path",
 		Domain:   "example.com",
