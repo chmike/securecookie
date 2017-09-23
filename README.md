@@ -1,5 +1,5 @@
 [![GoDoc](https://godoc.org/github.com/chmike/securecookie?status.svg)](https://godoc.org/github.com/chmike/securecookie)
-[![Build](https://travis-ci.org/chmike/securecookie?branch=master)](https://travis-ci.org/chmike/securecookie)]
+[![Build](https://travis-ci.org/chmike/securecookie?branch=master)](https://travis-ci.org/chmike/securecookie)
 [![Coverage](https://coveralls.io/repos/github/chmike/securecookie/badge.svg?branch=master)](https://coveralls.io/github/chmike/securecookie?branch=master)
 
 # Encode and Decode secure cookies
