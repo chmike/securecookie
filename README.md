@@ -99,9 +99,9 @@ the benchmark 10 times and taking the minimal value.
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
 |      Value len |       84 |      112 |
-|      Set ns/op |     5713 |    15417 |
-|      Get ns/op |     3509 |    14006 |
-|       Set B/op |      356 |     3324 |
+|      Set ns/op |     5566 |    14946 |
+|      Get ns/op |     4491 |    21142 |
+|       Set B/op |      342 |     3322 |
 |       Get B/op |      200 |     2784 |
 |  Set allocs/op |        3 |       37 |
 |  Get allocs/op |        3 |       39 |
