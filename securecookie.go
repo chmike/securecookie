@@ -15,11 +15,11 @@ The intended use is to instantiate at start up all secure cookie objects your
 web site may have to deal with. For instance:
 
 	obj, err := securecookie.New("Auth", key, securecookie.Params{
-		Path:     "/sec",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
+		Path:     "/sec",        // cookie is sent only when URL start with this path
+		Domain:   "example.com", // cookie is sent only when URL domain match this one
+		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it's set
+		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts
+		Secure:   true,          // cookie is only sent with HTTPS, never with HTTP
 	})
 	if err != nil {
 		// ...
@@ -28,15 +28,15 @@ web site may have to deal with. For instance:
 You may than set a secure cookie value in your handler with w being the
 http.ResponseWriter. Note that obj is not modified by this call.
 
-    err = obj.SetSecureValue(w, []byte("some value"))
-	if err != nil {
+    var val = []byte("some value")
+    if err := obj.SetValue(w, val); err != nil {
 		// ...
 	}
 
 You may than get the secure value with r being the *http.Request. Note
 that obj is not modified by this call.
 
-    val, err := obj.GetSecureValue(r)
+    val, err := obj.GetValue(r)
 	if err != nil {
 		// ...
 	}
@@ -283,9 +283,9 @@ func (o *Obj) Secure() bool {
 	return o.secure
 }
 
-// SetSecureValue adds the cookie with the value v to the server response w.
+// SetValue adds the cookie with the value v to the server response w.
 // The value v is encrypted and encoded in base64.
-func (o *Obj) SetSecureValue(w http.ResponseWriter, v []byte) error {
+func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
@@ -400,9 +400,9 @@ func base64Char(b byte) byte {
 	return '_' // b == 63
 }
 
-// GetSecureValue appends the decoded secure cookie value to dst.
+// GetValue appends the decoded secure cookie value to dst.
 // dst is allocated if nil, or grown if too small.
-func (o *Obj) GetSecureValue(dst []byte, r *http.Request) ([]byte, error) {
+func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {
 		return nil, err

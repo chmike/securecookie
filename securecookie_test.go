@@ -528,12 +528,12 @@ func TestSetAndGetCookie(t *testing.T) {
 	}
 	recorder := httptest.NewRecorder()
 	inValue := []byte("some value")
-	err = obj.SetSecureValue(recorder, inValue)
+	err = obj.SetValue(recorder, inValue)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
-	outValue, err := obj.GetSecureValue(nil, request)
+	outValue, err := obj.GetValue(nil, request)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	} else if !bytes.Equal(outValue, inValue) {
@@ -542,7 +542,7 @@ func TestSetAndGetCookie(t *testing.T) {
 
 	// test retrieve non-existant cookie.
 	obj.name = "xxx"
-	outValue, err = obj.GetSecureValue(nil, request)
+	outValue, err = obj.GetValue(nil, request)
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	} else if outValue != nil {
@@ -551,7 +551,7 @@ func TestSetAndGetCookie(t *testing.T) {
 
 	// force too big cookie error
 	recorder = httptest.NewRecorder()
-	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
+	err = obj.SetValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -560,7 +560,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	forceError = 1
 	defer func() { forceError = 0 }()
 	recorder = httptest.NewRecorder()
-	err = obj.SetSecureValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
+	err = obj.SetValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
 	if err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -615,7 +615,7 @@ func TestChmikeValueLen(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	err = obj.SetSecureValue(recorder, inValue)
+	err = obj.SetValue(recorder, inValue)
 	if err != nil {
 		panic(err)
 	}
@@ -693,7 +693,7 @@ func BenchmarkChmikeSetCookie(b *testing.B) {
 	}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		err = obj.SetSecureValue(recorder, inValue)
+		err = obj.SetValue(recorder, inValue)
 		if err != nil {
 			panic(err)
 		}
@@ -737,7 +737,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	if err != nil {
 		panic(err)
 	}
-	err = obj.SetSecureValue(recorder, inValue)
+	err = obj.SetValue(recorder, inValue)
 	if err != nil {
 		panic(err)
 	}
@@ -746,7 +746,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		_, err := obj.GetSecureValue(out[:0], request)
+		_, err := obj.GetValue(out[:0], request)
 		if err != nil {
 			panic(err)
 		}
