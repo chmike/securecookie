@@ -57,8 +57,8 @@ type Obj struct {
 	block    cipher.Block
 }
 
-// MustNew panic if New return a non-nil error, otherwise return o.
-// MustNew is to instantiate global variables.
+// MustNew panic if New return a non-nil error, otherwise return a cookie
+// object. The intended use is to intialize global variables.
 func MustNew(name string, key []byte, p Params) *Obj {
 	o, err := New(name, key, p)
 	if err != nil {
