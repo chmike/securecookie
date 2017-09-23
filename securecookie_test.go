@@ -438,7 +438,8 @@ func purgeBufPool() {
 		}
 	}
 }
-func TestDecodeValueErrors(t *testing.T) {
+
+func TestDecodeValueErrorsA(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
 	if err != nil {
 		t.Fatal(err)
@@ -468,6 +469,17 @@ func TestDecodeValueErrors(t *testing.T) {
 	}
 	obj.maxAge += 10000
 
+}
+
+func TestDecodeValueErrorsB(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
 	// set an invalid paddingLen value
 	dec, err := decodeBase64(nil, string(buf))
 	if err != nil {

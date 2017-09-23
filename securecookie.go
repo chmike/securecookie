@@ -225,7 +225,7 @@ func checkDomain(name string) error {
 			}
 			continue
 		}
-		if !((c >= '0' && c <= '9') || (c <= 'A' && c >= 'Z') || (c >= 'a' && c <= 'z')) {
+		if !isLetterOrDigit(c) {
 			if c < ' ' || c == 0x7F {
 				return fmt.Errorf("cookie domain: invalid character %#02X at offset %d", c, i)
 			}
@@ -235,10 +235,14 @@ func checkDomain(name string) error {
 	return nil
 }
 
+func isLetterOrDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c <= 'A' && c >= 'Z') || (c >= 'a' && c <= 'z')
+}
+
 func isValidNameChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-		c == '!' || (c >= '#' && c < '(') || c == '*' || c == '+' || c == '-' ||
-		c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~'
+	return isLetterOrDigit(c) || c == '!' || (c >= '#' && c < '(') || c == '*' ||
+		c == '+' || c == '-' || c == '.' || c == '^' || c == '_' || c == '`' ||
+		c == '|' || c == '~'
 }
 
 func isValidPathChar(c byte) bool {
