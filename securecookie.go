@@ -15,11 +15,11 @@ The intended use is to instantiate at start up all secure cookie objects your
 web site may have to deal with. For instance:
 
 	obj, err := securecookie.New("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie is sent only when URL start with this path
-		Domain:   "example.com", // cookie is sent only when URL domain match this one
+		Path:     "/sec",        // cookie is received only when URL start with this path
+		Domain:   "example.com", // cookie is received only when URL domain match this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it's set
 		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts
-		Secure:   true,          // cookie is only sent with HTTPS, never with HTTP
+		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
 	})
 	if err != nil {
 		// ...
