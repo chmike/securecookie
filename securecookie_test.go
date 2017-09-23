@@ -1,4 +1,4 @@
-package cookie
+package securecookie
 
 import (
 	"bytes"

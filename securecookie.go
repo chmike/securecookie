@@ -1,4 +1,55 @@
-package cookie
+/*
+Package securecookie provides functions to encode and decode secure cookie
+values.
+
+A secure cookie has its value ciphered and signed with a message authentication
+code. This prevents the remote cookie owner to know what information is stored
+in the cookie and to modify it. It also prevent an attacker to forge a fake
+cookie.
+
+The particularity of this secure cookie package is that it is fast (faster than
+the gorilla secure cookie), and value encoding and decoding needs zero heap
+allocations.
+
+The intended use is to instantiate at start up all secure cookie objects your
+web site may have to deal with. For instance:
+
+	obj, err := securecookie.New("Auth", key, securecookie.Params{
+		Path:     "/sec",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	})
+	if err != nil {
+		// ...
+	}
+
+You may than set a secure cookie value in your handler with w being the
+http.ResponseWriter. Note that obj is not modified by this call.
+
+    err = obj.SetSecureValue(w, []byte("some value"))
+	if err != nil {
+		// ...
+	}
+
+You may than get the secure value with r being the *http.Request. Note
+that obj is not modified by this call.
+
+    val, err := obj.GetSecureValue(r)
+	if err != nil {
+		// ...
+	}
+
+A method is also provided to delete the cookie with r being the *http.Request.
+Note that obj is not modified by this call. It is possible to set a new cookie
+value afterwards.
+
+    if err := obj.Delete(r); err != nil {
+		// ...
+	}
+*/
+package securecookie
 
 import (
 	"bytes"

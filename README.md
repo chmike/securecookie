@@ -1,7 +1,5 @@
 # Encode and Decode secure cookies
 
-**Note:* the package will be renamed into *securecookie*.
-
 This package provides functions to encode and decode secure cookie values.
 
 A secure cookie has its value ciphered and signed with a message authentication
@@ -12,6 +10,11 @@ cookie.
 This package differ from the gorilla secure cookie in that its encoding and
 decoding is 3 times faster and need no heap allocation, while the security
 remains equivalent. 
+
+**Note:** This package uses its own secure cookie value encoding. It is thus
+incompatible with Gorilla secure cookie package and the one provided with other
+langage frameworks. This encoding is simpler and more efficient, and adds a
+version number to suuport evolution with backward compatibility. 
 
 **Warning:** Because this package impacts security of web applications,
 it is a critical functionaly. It still need reviews to be production ready.
@@ -28,10 +31,10 @@ Feedback is welcome.
 
 ## Installation
 
-To intall or update the cookie package use the instruction:
+To intall or update this secure cookie package use the instruction:
 
 ``` Bash
-go get -u "github.com/chmike/cookie"
+go get -u "github.com/chmike/securecookie"
 ```
 
 ## Usage examples
@@ -39,7 +42,7 @@ go get -u "github.com/chmike/cookie"
 To use this cookie package in your server, add the following import.
 
 ``` Go
-import "github.com/chmike/cookie"
+import "github.com/chmike/securecookie"
 ```
 
 ### Generating a random key
@@ -48,33 +51,49 @@ It is strongly recommended to generate the random key with the following functio
 Save the key in a file using hex.EncodeToString() and restrict access to that file.
 
 ``` Go
-var key []byte = cookie.GenerateRandomKey()
+var key []byte = securecookie.GenerateRandomKey()
 ```
 
 To mitigate the risk that an attacker get the saved key, you might store a second
 key in another place and use the xor of both keys as secure cookie key. The attacker
-will have to get both keys which should be more difficult.
+will have to get both keys to recontruct the effective key which should be more 
+difficult.
 
 ### Instantiating a cookie object
 
 ``` Go
-params := Params{
+params := securecookie.Params{
     Path:     "/sec",
     Domain:   "example.com",
     MaxAge:   3600,
     HTTPOnly: true,
     Secure:   true,
 }
-obj, err := cookie.New(key, "Auth", params)
+obj, err := securecookie.New("Auth", key, params)
 if err != nil {
     // ...
 }
 ```
 
+It is also possible to instantiate a secure cookie object without returning
+an error and panic if an argument is invalid.
+
+``` Go
+var obj = securecookie.MustNew("Auth", key, securecookie.Params{
+    Path:     "/sec",
+    Domain:   "example.com",
+    MaxAge:   3600,
+    HTTPOnly: true,
+    Secure:   true,
+}
+```
+
+Remember that the key should not be stored in the source code or in a repository.
+
 ### Adding a secure cookie to a server response
 
 ``` Go
-err = obj.SetSecureValue(w, []byte("some value)) // w is the http.ResponseWriter
+err = obj.SetSecureValue(w, []byte("some value")) // w is the http.ResponseWriter
 if err != nil {
     // ...
 }
@@ -84,6 +103,9 @@ if err != nil {
 
 ``` Go
 value, err := obj.GetSecureValue(r) // r is the *http.Request
+if err != nil {
+  // ...
+}
 ```
 
 The returned value is of type []byte.
@@ -91,11 +113,13 @@ The returned value is of type []byte.
 ### Deleting a cookie
 
 ``` Go
-err := obj.Delete(r) // r is the *http.Request
+if err := obj.Delete(r); err != nil { // r is the *http.Request
+  // ...
+}
 ```
 
-Note: don't rely on the assumption that the remote user agent (browser) will
-effectively delete the cookie.
+Note: don't rely on the assumption that the remote user agent (browser) will effectively delete the cookie. Evil users will try anything to 
+break your site. 
 
 ## Benchmarking
 
