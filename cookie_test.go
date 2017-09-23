@@ -94,8 +94,18 @@ func (o1 *Obj) Equal(o2 *Obj) bool {
 		o1.secure == o2.secure
 }
 
+func TestMustNew(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic")
+		}
+	}()
+	MustNew("test", nil, Params{})
+}
+
 func TestNew(t *testing.T) {
 	k := make([]byte, KeyLen)
+	kb := make([]byte, KeyLen*3)
 	n := "test"
 	tests := []struct {
 		k    []byte
@@ -116,6 +126,7 @@ func TestNew(t *testing.T) {
 		{k: k, n: n, p: Params{MaxAge: -3600}, o: nil, fail: true},
 		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{key: k, name: n, httpOnly: true}},
 		{k: k, n: n, p: Params{Secure: true}, o: &Obj{key: k, name: n, secure: true}},
+		{k: kb, n: n, p: Params{Secure: true}, o: &Obj{key: kb, name: n, secure: true}, fail: true},
 	}
 	for _, test := range tests {
 		obj, err := New(test.n, test.k, test.p)
@@ -134,6 +145,7 @@ func TestNew(t *testing.T) {
 			t.Errorf("got object %+v, expected %+v for input %+v", *obj, *test.o, test)
 		}
 	}
+
 }
 
 func TestAccessorsMethods(t *testing.T) {
@@ -489,6 +501,14 @@ func TestDecodeValueErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
+	// purge bufPool
+	for {
+		var bPtr = bufPool.Get().(*[]byte)
+		if len(*bPtr) == 0 {
+			break
+		}
+	}
+
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}

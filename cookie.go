@@ -120,15 +120,13 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		secure:   p.Secure,
 		block:    block,
 	}
-	if len(key)/2 > sha256.BlockSize {
-		var digest = sha256.Sum256(key[:len(key)/2])
-		copy(o.ipad[:], digest[:])
-	} else {
-		copy(o.ipad[:], key[:len(key)/2])
-	}
 	for i := range o.ipad {
-		o.ipad[i] ^= 0x36
-		o.opad[i] = o.ipad[i] ^ 0x5C ^ 0x36
+		o.ipad[i] = 0x36
+		o.opad[i] = 0x5C
+	}
+	for i := range key[:len(key)/2] {
+		o.ipad[i] ^= key[i]
+		o.opad[i] ^= key[i]
 	}
 	return o, nil
 }
@@ -598,7 +596,7 @@ const maxCookieLen = 4000
 var forceError int
 
 // buffer pool.
-var bufPool = sync.Pool{New: func() interface{} { b := make([]byte, 128); return &b }}
+var bufPool = sync.Pool{New: func() interface{} { var b []byte; return &b }}
 
 // hmacBlockPool is a pool of hmac blocks.
 var hmacBlockPool = sync.Pool{New: func() interface{} { return new(hmacBlock) }}
