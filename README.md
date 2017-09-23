@@ -1,4 +1,4 @@
-[![GoDoc](https://godoc.org/github.com/chmike/securecookie?status.svg)](https://godoc.org/github.com/chmike/securecookie)
+[![GoDoc](https://godoc.org/github.com/chmike/securecookie?status.svg)](https://godoc.org/github.com/chmike/securecookie) [![Build](https://travis-ci.org/chmike/securecookie?branch=master)](https://travis-ci.org/chmike/securecookie)
 
 # Encode and Decode secure cookies
 
