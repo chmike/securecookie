@@ -2,6 +2,8 @@ package cookie
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -311,6 +313,29 @@ func TestDecodeUint64(t *testing.T) {
 	}
 }
 
+func TestXorCtrAes(t *testing.T) {
+	var iv = make([]byte, aes.BlockSize)
+	var txt = []byte(strings.Repeat("test ", 10))
+	var ref = []byte(strings.Repeat("test ", 10))
+	var key = make([]byte, aes.BlockSize*2)
+	obj, err := New("name", key, Params{})
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	// cipher
+	obj.xorCtrAes(iv, txt)
+	// decipher
+	block, err := aes.NewCipher(key[len(key)/2:])
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	var stream = cipher.NewCTR(block, iv)
+	stream.XORKeyStream(txt, txt)
+	if !bytes.Equal(txt, ref) {
+		t.Errorf("ctr aes ciphering error")
+	}
+}
+
 func TestEncodeDecodeValue(t *testing.T) {
 	tests := []struct {
 		in               []byte
@@ -428,11 +453,11 @@ func TestDecodeValueErrors(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	dec = dec[:len(dec)-hmacLen]
-	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
+	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
 	for i := 1 + ivLen; i < 1+ivLen+10; i++ {
 		dec[i] |= 0x80
 	}
-	obj.xorCTRAES(dec[1:1+ivLen], dec[1+ivLen:])
+	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
 	hm.Reset()
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)

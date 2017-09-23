@@ -1,10 +1,17 @@
 # Encode and Decode secure cookies
 
+**Note:* the package will be renamed into *securecookie*.
+
 This package provides functions to encode and decode secure cookie values.
 
-A secure cookie has its value encryted along with a MAC. This prevents the
-remote cookie owner to know what information is stored in the cookie and
-to modify it. It also prevent an attacker to forge a fake cookie.
+A secure cookie has its value ciphered and signed with a message authentication
+code. This prevents the remote cookie owner to know what information is stored 
+in the cookie and to modify it. It also prevent an attacker to forge a fake 
+cookie.
+
+This package differ from the gorilla secure cookie in that its encoding and
+decoding is 3 times faster and need no heap allocation, while the security
+remains equivalent. 
 
 **Warning:** Because this package impacts security of web applications,
 it is a critical functionaly. It still need reviews to be production ready.
@@ -99,12 +106,15 @@ the benchmark 10 times and taking the minimal value.
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
 |      Value len |       84 |      112 |
-|      Set ns/op |     5566 |    14946 |
-|      Get ns/op |     4491 |    21142 |
+|      Set ns/op |     5527 |    14946 |
+|      Get ns/op |     4421 |    21142 |
 |       Set B/op |      342 |     3322 |
 |       Get B/op |      200 |     2784 |
 |  Set allocs/op |        3 |       37 |
 |  Get allocs/op |        3 |       39 |
+
+The secure cookie value encoding and decoding functions of this package need 0 
+heap allocations. 
 
 ## Qualitative comparison
 

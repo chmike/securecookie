@@ -282,7 +282,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 		return dst, err
 	}
 	endPos += nPad
-	o.xorCTRAES(iv, b[xorPos:endPos])
+	o.xorCtrAes(iv, b[xorPos:endPos])
 	endPos += o.hmacsha256(b[endPos:], b[:endPos])
 	var encLen = ((endPos-encPos)*8 + 5) / 6
 	if cap(dst) < len(dst)+encLen {
@@ -405,7 +405,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	}
 	var iv = b[1 : 1+ivLen]
 	b = b[1+ivLen:]
-	o.xorCTRAES(iv, b)
+	o.xorCtrAes(iv, b)
 	stamp, stampLen := decodeUint64(b)
 	if stampLen == 0 {
 		return dst, errors.New("invalid time stamp encoding")
@@ -518,8 +518,9 @@ func (o *Obj) hmacsha256(b []byte, data1 []byte) int {
 	return copy(b, digest[:])
 }
 
-// xorCTRAES computes the xor of data with encrypted ctr counter initialized bith iv.
-func (o *Obj) xorCTRAES(iv []byte, data []byte) {
+// xorCtrAes computes the xor of data with encrypted ctr counter initialized bith iv.
+// It leaks timing information, but it is not a problem since the iv is public.
+func (o *Obj) xorCtrAes(iv []byte, data []byte) {
 	var buf = hmacBlockPool.Get().(*hmacBlock)
 	defer hmacBlockPool.Put(buf)
 	var ctr = buf[:blockLen]
@@ -532,11 +533,11 @@ func (o *Obj) xorCTRAES(iv []byte, data []byte) {
 		for i := range bits {
 			data[i] ^= bits[i]
 		}
-		var b uint16
 		for i := blockLen - 1; i >= 0; i-- {
-			b += uint16(ctr[i])
-			ctr[i] = byte(b)
-			b >>= 8
+			ctr[i]++
+			if ctr[i] != 0 {
+				break
+			}
 		}
 		data = data[blockLen:]
 	}
