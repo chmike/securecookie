@@ -71,7 +71,7 @@ difficult.
 obj, err := securecookie.New("Auth", key, securecookie.Params{
 		Path:     "/sec",        // cookie is received only when URL start with this path
 		Domain:   "example.com", // cookie is received only when URL domain match this one
-		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it's set
+		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts 
 		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
 })
@@ -83,9 +83,9 @@ if err != nil {
 It is also possible to instantiate a secure cookie object without returning
 an error and panic if an argument is invalid. In the following example,
 `Auth` is the cookie name and the Path is `/sec`. A secured value may be stored
-in the remote browse by calling the `SetCookie()` method. After that, every 
+in the remote browse by calling the `SetValue()` method. After that, every 
 subsequent requests from that browser with a URL starting with `/sec` will have
-the cookie sent along. Calling the method `GetValue()` will extract the  secure
+the cookie sent along. Calling the method `GetValue()` will extract the secure
 value from the request. A request to delete the cookie may be send to the 
 remote browser by calling the method `Delete()`.
 
