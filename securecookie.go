@@ -2,21 +2,21 @@
 Package securecookie is a fast, efficient and safe cookie value encoder/decoder.
 
 A secure cookie has its value ciphered and signed with a message authentication
-code. This prevents the remote cookie owner to know what information is stored
-in the cookie and to modify it. It also prevent an attacker to forge a fake
+code. This prevents the remote cookie owner from knowing what information is stored
+in the cookie or modifying it. It also prevents an attacker from forging a fake
 cookie.
 
-The particularity of this secure cookie package is that it is fast (faster than
-the gorilla secure cookie), and value encoding and decoding needs zero heap
+What makes this secure cookie package different is that it is fast (faster than
+the Gorilla secure cookie), and value encoding and decoding needs zero heap
 allocations.
 
 The intended use is to instantiate at start up all secure cookie objects your
 web site may have to deal with. For instance:
 
 	obj, err := securecookie.New("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie is received only when URL start with this path
-		Domain:   "example.com", // cookie is received only when URL domain match this one
-		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it's set
+		Path:     "/sec",        // cookie is received only when URL starts with this path
+		Domain:   "example.com", // cookie is received only when URL domain matches this one
+		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts
 		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
 	})
@@ -24,7 +24,7 @@ web site may have to deal with. For instance:
 		// ...
 	}
 
-You may than set a secure cookie value in your handler with w being the
+You may then set a secure cookie value in your handler with w being the
 http.ResponseWriter. Note that obj is not modified by this call.
 
     var val = []byte("some value")
@@ -32,9 +32,9 @@ http.ResponseWriter. Note that obj is not modified by this call.
 		// ...
 	}
 
-You may than get the secure value with r being the *http.Request. Note
+You may then get the secure value with r being the *http.Request. Note
 that obj is not modified by this call. The value is appended to buf. If
-buf is nil, a new buffer is allocated. If it's too small, it is grown.
+buf is nil, a new buffer is allocated. If it is too small, it is grown.
 
     val, err := obj.GetValue(buf, r)
 	if err != nil {
@@ -68,7 +68,7 @@ import (
 // KeyLen is the byte length of the key.
 const KeyLen = 32
 
-// GenerateRandomKey return a random key of KeyLen bytes.
+// GenerateRandomKey returns a random key of KeyLen bytes.
 // Use hex.EncodeToString(key) to get the key as hexadecimal string,
 // and hex.DecodeString(keyStr) to convert back from string to byte slice.
 func GenerateRandomKey() ([]byte, error) {
@@ -79,17 +79,17 @@ func GenerateRandomKey() ([]byte, error) {
 	return key, nil
 }
 
-// An Params holds the cookie parameters. Use BytesToString() to convert
-// a []byte value to a string value without allocation and data copy, but
-// it requires that the value is not modified after the conversion.
-// To delete a cookie, set expire in the past and the path and domain
-// that are in the cookie to delete.
+// A Params value holds the cookie parameters. Use BytesToString() to convert a
+// []byte value to a string value without allocation and data copy, but it
+// requires that the value is not modified after the conversion. To delete a
+// cookie, set expire in the past and the path and domain that are in the cookie
+// to delete.
 type Params struct {
 	Path     string // Optional : URL path to which the cookie will be returned
 	Domain   string // Optional : domain to which the cookie will be returned
 	MaxAge   int    // Optional : time offset in seconds from now, must be > 0
 	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
-	Secure   bool   // Optional : cookie can only be send over HTTPS connections
+	Secure   bool   // Optional : cookie can only be sent over HTTPS connections
 }
 
 // Obj is a validated cookie object.
@@ -108,8 +108,8 @@ type Obj struct {
 	block    cipher.Block
 }
 
-// MustNew panic if New return a non-nil error, otherwise return a cookie
-// object. The intended use is to intialize global variables.
+// MustNew panics if New returns a non-nil error, otherwise returns a cookie
+// object. The intended use is to initialize global variables.
 func MustNew(name string, key []byte, p Params) *Obj {
 	o, err := New(name, key, p)
 	if err != nil {
@@ -118,7 +118,7 @@ func MustNew(name string, key []byte, p Params) *Obj {
 	return o
 }
 
-// New instantiate a validated cookie parameter field set with an associated key.
+// New instantiates a validated cookie parameter field set with an associated key.
 func New(name string, key []byte, p Params) (*Obj, error) {
 	block, err := aes.NewCipher(key[len(key)/2:])
 	if err != nil {
@@ -182,7 +182,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	return o, nil
 }
 
-// checkName return an error if the cookie name is invalid.
+// checkName returns an error if the cookie name is invalid.
 func checkName(name string) error {
 	if len(name) == 0 {
 		return errors.New("cookie name: empty value")
@@ -193,7 +193,7 @@ func checkName(name string) error {
 	return nil
 }
 
-// checkPath return an error if the cookie path is invalid
+// checkPath returns an error if the cookie path is invalid
 func checkPath(path string) error {
 	if err := checkChars(path, isValidPathChar); err != nil {
 		return fmt.Errorf("cookie path: %s", err)
@@ -201,7 +201,7 @@ func checkPath(path string) error {
 	return nil
 }
 
-// checkDomain return an error if the domain name is not valid.
+// checkDomain returns an error if the domain name is not valid.
 // See https://tools.ietf.org/html/rfc1034#section-3.5 and
 // https://tools.ietf.org/html/rfc1123#section-2.
 func checkDomain(name string) error {
@@ -212,7 +212,7 @@ func checkDomain(name string) error {
 		c := name[i]
 		if c == '.' {
 			if i == 0 {
-				return errors.New("cookie domain: start with '.'")
+				return errors.New("cookie domain: starts with '.'")
 			}
 			if pc := name[i-1]; pc == '-' || pc == '.' {
 				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", pc, i-1)
@@ -262,27 +262,27 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
-// Path return the cookie path field value.
+// Path returns the cookie path field value.
 func (o *Obj) Path() string {
 	return o.path
 }
 
-// Domain return the cookie domain field value.
+// Domain returns the cookie domain field value.
 func (o *Obj) Domain() string {
 	return o.domain
 }
 
-// MaxAge return the cookie max age field value.
+// MaxAge returns the cookie max age field value.
 func (o *Obj) MaxAge() int {
 	return o.maxAge
 }
 
-// HTTPOnly return the cookie HTTPOnly field value.
+// HTTPOnly returns the cookie HTTPOnly field value.
 func (o *Obj) HTTPOnly() bool {
 	return o.httpOnly
 }
 
-// Secure return the cookie HTTPOnly field value.
+// Secure returns the cookie HTTPOnly field value.
 func (o *Obj) Secure() bool {
 	return o.secure
 }
@@ -374,7 +374,7 @@ func encodeBase64(dst, src []byte) ([]byte, error) {
 	return dst, nil
 }
 
-// encodeUint64 encode v in b and return the bytes written.
+// encodeUint64 encodes v in b and returns the bytes written.
 // panic if b is not big enough. Max encoding length is 10.
 func encodeUint64(b []byte, v uint64) int {
 	var n int
@@ -414,7 +414,7 @@ func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 	return o.decodeValue(dst, c.Value)
 }
 
-// decodeValue append the encoded value val to dst.
+// decodeValue appends the encoded value val to dst.
 // dst is allocated if nil, or grown if too small.
 // Requires: len(val) >= minEncLen && len(val)%4 == 0.
 func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
@@ -472,8 +472,8 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	return append(dst, b[stampLen:len(b)-nPad]...), nil
 }
 
-// decodeBase64 append base64 encoded src to dst.
-// Return an error if len(src)%4 != 0 or src is not valid base64 encoding.
+// decodeBase64 appends base64 encoded src to dst.
+// Returns an error if len(src)%4 != 0 or src is not valid base64 encoding.
 // Requires cap(dst) - len(dst) >= (len(src)/4)*3.
 func decodeBase64(dst []byte, src string) ([]byte, error) {
 	if len(src)%4 != 0 {
@@ -516,7 +516,7 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 	return dst, nil
 }
 
-// decodeUint64 encode v in b and return the number of
+// decodeUint64 encodes v in b and returns the number of
 // bytes read. If that value is 0, no value was read.
 func decodeUint64(b []byte) (uint64, int) {
 	var v uint64
@@ -534,7 +534,7 @@ func decodeUint64(b []byte) (uint64, int) {
 	return 0, 0
 }
 
-// Delete send a request to the remote user agent to delete the given
+// Delete sends a request to the remote user agent to delete the given
 // cookie. Note that the user agent may not execute the request.
 func (o *Obj) Delete(w http.ResponseWriter) error {
 	bPtr := bufPool.Get().(*[]byte)
@@ -571,7 +571,7 @@ func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
 	return copy(b, digest[:])
 }
 
-// xorCtrAes computes the xor of data with encrypted ctr counter initialized bith iv.
+// xorCtrAes computes the xor of data with encrypted ctr counter initialized with iv.
 // It leaks timing information, but it is not a problem since the iv is public.
 func (o *Obj) xorCtrAes(iv []byte, data []byte) {
 	var buf = hmacBlockPool.Get().(*hmacBlock)
@@ -600,7 +600,7 @@ func (o *Obj) xorCtrAes(iv []byte, data []byte) {
 	}
 }
 
-// fillRandom fill b with cryptographically secure pseudorandom bytes.
+// fillRandom fills b with cryptographically secure pseudorandom bytes.
 func fillRandom(b []byte) error {
 	if forceError == 0 {
 		_, err := rand.Read(b)
@@ -616,8 +616,8 @@ func fillRandom(b []byte) error {
 // encodingVersion is the version of the generated encoding.
 const encodingVersion = 0
 
-// epochOffset is the number of seconds to subtract to the unix time to get
-// the epoch used in these secure cookie.
+// epochOffset is the number of seconds to subtract from the unix time to get
+// the epoch used in these secure cookies.
 const epochOffset uint64 = 1505230500
 
 // hmacLen is the byte length of the hmac(SHA256) digest.
@@ -644,7 +644,7 @@ type byteBlock [blockLen]byte
 // minEncLen is the minimum encoding length of a value.
 const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
 
-// maxCookieLen is the maximum len of a cookie.
+// maxCookieLen is the maximum length of a cookie.
 const maxCookieLen = 4000
 
 // forceError is used for 100% test coverage.

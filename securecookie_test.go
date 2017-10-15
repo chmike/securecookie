@@ -175,7 +175,7 @@ func TestAccessorsMethods(t *testing.T) {
 		t.Errorf("got HTTP only %t, expected %t", obj.HTTPOnly(), params.HTTPOnly)
 	}
 	if obj.Secure() != params.Secure {
-		t.Errorf("got HTTP only %t, expected %t", obj.Secure(), params.Secure)
+		t.Errorf("got secure %t, expected %t", obj.Secure(), params.Secure)
 	}
 }
 
