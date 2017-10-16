@@ -234,6 +234,8 @@ while preserving backwards compatibility if required.
 - cstockton (github):
   - critical [bug report](https://github.com/chmike/cookie/issues/1),
   - suggest simpler API.
+- flowonyx (github):
+  - fix many typos in the README and comments.
 
 ## Usage advise
 
