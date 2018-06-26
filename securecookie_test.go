@@ -82,6 +82,9 @@ func TestCheckDomain(t *testing.T) {
 	if err := checkDomain(strings.Repeat("a", 70) + ".com"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
+	if err := checkDomain("example.com" + strings.Repeat("a", 70)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
 	if err := checkDomain("?"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
