@@ -161,6 +161,8 @@ the benchmark 10 times and taking the minimal value.
 The secure cookie value encoding and decoding functions of this package need 0 
 heap allocations. 
 
+The benchmarks were obtained with release v0.4. Subsequent release may alter the benchmark results.
+
 ## Qualitative comparison
 
 The latest version was updated to put the security in line with the Gorilla
