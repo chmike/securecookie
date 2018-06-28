@@ -3,6 +3,7 @@
 [![Coverage](https://coveralls.io/repos/github/chmike/securecookie/badge.svg?branch=master)](https://coveralls.io/github/chmike/securecookie?branch=master)
 [![Go Report](https://goreportcard.com/badge/github.com/chmike/securecookie)](https://goreportcard.com/report/github.com/chmike/securecookie)
 ![Status](https://img.shields.io/badge/status-beta-orange.svg)
+![release](https://img.shields.io/github/release/chmike/securecookie.svg)
 
 # Encode and Decode secure cookies
 
