@@ -63,6 +63,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // KeyLen is the byte length of the key.
@@ -201,46 +202,63 @@ func checkPath(path string) error {
 	return nil
 }
 
-// checkDomain returns an error if the domain name is not valid.
+// checkDomain returns an error if the domain name is not valid
 // See https://tools.ietf.org/html/rfc1034#section-3.5 and
 // https://tools.ietf.org/html/rfc1123#section-2.
 func checkDomain(name string) error {
-	if len(name) > 255 {
+	switch {
+	case len(name) == 0:
+		return nil // an empty domain name will result in a cookie without a domain restriction
+	case len(name) > 255:
 		return fmt.Errorf("cookie domain: name length is %d, can't exceed 255", len(name))
 	}
+	var l int
 	for i := 0; i < len(name); i++ {
-		c := name[i]
-		if c == '.' {
-			if i == 0 {
-				return errors.New("cookie domain: starts with '.'")
+		b := name[i]
+		if b == '.' {
+			// check domain labels validity
+			switch {
+			case i == l:
+				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d: label can't begin with a period", b, i)
+			case i-l > 63:
+				return fmt.Errorf("cookie domain: byte length of label '%s' is %d, can't exceed 63", name[l:i], i-l)
+			case name[l] == '-':
+				return fmt.Errorf("cookie domain: label '%s' at offset %d begins with a hyphen", name[l:i], l)
+			case name[i-1] == '-':
+				return fmt.Errorf("cookie domain: label '%s' at offset %d ends with a hyphen", name[l:i], l)
 			}
-			if pc := name[i-1]; pc == '-' || pc == '.' {
-				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", pc, i-1)
-			}
-			if i == len(name)-1 {
-				return errors.New("cookie domain: ends with '.'")
-			}
-			if nc := name[i+1]; nc == '-' {
-				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", nc, i+1)
-			}
+			l = i + 1
 			continue
 		}
-		if !isLetterOrDigit(c) {
-			if c < ' ' || c == 0x7F {
-				return fmt.Errorf("cookie domain: invalid character %#02X at offset %d", c, i)
+		// test label character validity, note: tests are ordered by decreasing validity frequency
+		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b >= 'A' && b <= 'Z') {
+			// show the printable unicode character starting at byte offset i
+			c, _ := utf8.DecodeRuneInString(name[i:])
+			if c == utf8.RuneError {
+				return fmt.Errorf("cookie domain: invalid rune at offset %d", i)
 			}
 			return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", c, i)
 		}
 	}
+	// check top level domain validity
+	switch {
+	case l == len(name):
+		return fmt.Errorf("cookie domain: missing top level domain, domain can't end with a period")
+	case len(name)-l > 63:
+		return fmt.Errorf("cookie domain: byte length of top level domain '%s' is %d, can't exceed 63", name[l:], len(name)-l)
+	case name[l] == '-':
+		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d begins with a hyphen", name[l:], l)
+	case name[len(name)-1] == '-':
+		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d ends with a hyphen", name[l:], l)
+	case name[l] >= '0' && name[l] <= '9':
+		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d begins with a digit", name[l:], l)
+	}
 	return nil
 }
 
-func isLetterOrDigit(c byte) bool {
-	return (c >= '0' && c <= '9') || (c <= 'A' && c >= 'Z') || (c >= 'a' && c <= 'z')
-}
-
 func isValidNameChar(c byte) bool {
-	return isLetterOrDigit(c) || c == '!' || (c >= '#' && c < '(') || c == '*' ||
+	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+		(c >= 'A' && c <= 'Z') || c == '!' || (c >= '#' && c < '(') || c == '*' ||
 		c == '+' || c == '-' || c == '.' || c == '^' || c == '_' || c == '`' ||
 		c == '|' || c == '~'
 }

@@ -31,6 +31,9 @@ func TestCheckName(t *testing.T) {
 	if err := checkName("toto"); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
+	if err := checkName("TOTO"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 	if err := checkName("?"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -55,10 +58,31 @@ func TestCheckPath(t *testing.T) {
 }
 
 func TestCheckDomain(t *testing.T) {
+	if err := checkDomain(""); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 	if err := checkDomain("example.com"); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
+	if err := checkDomain("EXAMPLE.com"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkDomain("foo-bar.com"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkDomain("www1.foo-bar.com"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if err := checkDomain("192.168.1.1.example.com"); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 	if err := checkDomain(strings.Repeat("a", 300)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain(strings.Repeat("a", 70) + ".com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example.com" + strings.Repeat("a", 70)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	if err := checkDomain("?"); err == nil {
@@ -67,13 +91,28 @@ func TestCheckDomain(t *testing.T) {
 	if err := checkDomain("\t"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if err := checkDomain(".example.com"); err == nil {
+	if err := checkDomain("exàmple.com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("www.\xbd\xb2.com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("-example.com"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	if err := checkDomain("example-.com"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	if err := checkDomain("example.-com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example.com-"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain("example.1com"); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if err := checkDomain(".example.com"); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	if err := checkDomain("example..com"); err == nil {
