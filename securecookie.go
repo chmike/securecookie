@@ -24,8 +24,8 @@ the value.
 		                         // domain matches this one.
 		MaxAge:   3600,          // cookie becomes invalid 3600
 		                         // seconds after it is set.
-		HTTPOnly: true,          // cookie inaccessible to remote
-		                         // browser scripts.
+		HTTPOnly: true,          // disallow access by remote
+		                         // javascript code.
 		Secure:   true,          // cookie received only with HTTPS,
 		                         // never with HTTP.
 	})

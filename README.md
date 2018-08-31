@@ -24,8 +24,7 @@ language frameworks. This encoding is simpler and more efficient, and adds a
 version number to support evolution with backwards compatibility.
 
 **Warning:** Because this package impacts security of web applications,
-it is a critical functionality. It still needs reviews to be production ready.
-Feedback is welcome.
+it is a critical functionality. Review feedbacks are always welcome.
 
 ## Content
 
@@ -71,12 +70,12 @@ difficult.
 To return an error if an argument is invalid, use `securecookie.New()`.
 
 ``` Go
-obj, err := securecookie.New("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie is received only when URL starts with this path
-		Domain:   "example.com", // cookie is received only when URL domain matches this one
+obj, err := securecookie.New("session", key, securecookie.Params{
+		Path:     "/sec",        // cookie received only when URL starts with this path
+		Domain:   "example.com", // cookie received only when URL domain matches this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts 
-		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
+		HTTPOnly: true,          // disallow access by remote javascript code 
+		Secure:   true,          // cookie received only with HTTPS, never with HTTP
 })
 if err != nil {
     // ...
@@ -85,7 +84,7 @@ if err != nil {
 
 It is also possible to instantiate a secure cookie object without returning an
 error and panic if an argument is invalid. To do this, use
-`securecookie.MustNew()`. In the following example, `Auth` is the cookie name
+`securecookie.MustNew()`. In the following example, `session` is the cookie name
 and the Path is `/sec`. A secured value may be stored in the remote browser by
 calling the `SetValue()` method. After that, every subsequent request from that
 browser with a URL starting with `/sec` will have the cookie sent along. Calling
@@ -95,11 +94,11 @@ method `Delete()`.
 
 ``` Go
 var obj = securecookie.MustNew("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie is received only when URL starts with this path
-		Domain:   "example.com", // cookie is received only when URL domain matches this one
+		Path:     "/sec",        // cookie received only when URL starts with this path
+		Domain:   "example.com", // cookie received only when URL domain matches this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts 
-		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
+		HTTPOnly: true,          // disallow access by remote javascript code 
+		Secure:   true,          // cookie received only with HTTPS, never with HTTP
 }
 ```
 
@@ -133,8 +132,8 @@ The returned value is of type []byte.
 ### Deleting a cookie
 
 ``` Go
-// with r as the *http.Request
-if err := obj.Delete(r); err != nil {
+// with w as the http.ResponseWriter
+if err := obj.Delete(w); err != nil {
   // ...
 }
 ```
