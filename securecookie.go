@@ -272,7 +272,7 @@ func checkChars(s string, isValid func(c byte) bool) error {
 		c := s[i]
 		if !isValid(c) {
 			if c < ' ' || c >= 0x7F {
-				return fmt.Errorf("invalid character %#02X at offset %d", c, i)
+				return fmt.Errorf("invalid character 0x%02X at offset %d", c, i)
 			}
 			return fmt.Errorf("invalid character '%c' at offset %d", c, i)
 		}
@@ -347,49 +347,17 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	var xorPos = endPos
 	endPos += encodeUint64(b[endPos:], uint64(time.Now().Unix())-epochOffset)
 	endPos += copy(b[endPos:], val)
-	var nPad = (3 - (endPos+hmacLen-encPos)%3) % 3
+	var padPos = endPos
+	var nPad = (endPos + hmacLen - encPos) % 3
+	nPad = (nPad>>1 | nPad<<1) & 3 // computes : 0 -> 0; 1 -> 2; 2 -> 1
 	b[encPos] |= byte(nPad)
-	if err := fillRandom(b[endPos : endPos+nPad]); err != nil {
+	endPos += nPad
+	if err := fillRandom(b[padPos:endPos]); err != nil {
 		return dst, err
 	}
-	endPos += nPad
 	o.xorCtrAes(iv, b[xorPos:endPos])
 	endPos += o.hmacSha256(b[endPos:], b[:endPos])
-	var encLen = ((endPos-encPos)*8 + 5) / 6
-	if cap(dst) < len(dst)+encLen {
-		var tmp = make([]byte, len(dst), len(dst)+encLen)
-		copy(tmp, dst)
-		dst = tmp
-	}
-	return encodeBase64(dst, b[encPos:endPos])
-}
-
-// encodBase64 appends the base64 encoding of src to dst.
-// Requires len(src)%3 == 0 && cap(dst) - len(dst) >= len(src)*4/3.
-// May encode src in place if src is just after dst.
-func encodeBase64(dst, src []byte) ([]byte, error) {
-	if len(src)%3 != 0 {
-		return dst, fmt.Errorf("invalid length %d, must be multiple of 3", len(src)%3)
-	}
-	var srcIdx, dstIdx = len(src), len(dst) + (len(src)/3)*4
-	dst = dst[:dstIdx]
-	for srcIdx > 0 {
-		srcIdx--
-		v := uint64(src[srcIdx])
-		srcIdx--
-		v |= uint64(src[srcIdx]) << 8
-		srcIdx--
-		v |= uint64(src[srcIdx]) << 16
-		dstIdx--
-		dst[dstIdx] = base64Char(byte(v))
-		dstIdx--
-		dst[dstIdx] = base64Char(byte(v >> 6))
-		dstIdx--
-		dst[dstIdx] = base64Char(byte(v >> 12))
-		dstIdx--
-		dst[dstIdx] = base64Char(byte(v >> 18))
-	}
-	return dst, nil
+	return encodeBase64(dst, b[encPos:endPos]), nil
 }
 
 // encodeUint64 encodes v in b and returns the bytes written.
@@ -405,21 +373,26 @@ func encodeUint64(b []byte, v uint64) int {
 	return n + 1
 }
 
-// base64Char converts a byte to Base64 URL encoding character.
-// The two most significant bits of b are ignored.
-// See https://tools.ietf.org/html/rfc4648#section-5.
-func base64Char(b byte) byte {
-	b &= 0x3F
-	if b < 26 {
-		return b + 'A'
-	} else if b < 52 {
-		return b + 'a' - 26
-	} else if b < 62 {
-		return b + '0' - 52
-	} else if b == 62 {
-		return '-'
+// encodeBase64 appends the base64 encoding of src to dst. Grow dst if needed.
+// Requires that length of src is a multiple of three, and that src and dst don't overlap.
+func encodeBase64(dst, src []byte) []byte {
+	const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	dstLen := len(dst) + len(src)*8/6
+	if cap(dst) < dstLen {
+		dst = append(make([]byte, 0, dstLen), dst...)
 	}
-	return '_' // b == 63
+	dstIdx, srcIdx := len(dst), 0
+	dst = dst[:dstLen]
+	for dstIdx != dstLen {
+		v := uint64(src[srcIdx])<<16 | uint64(src[srcIdx+1])<<8 | uint64(src[srcIdx+2])
+		srcIdx += 3
+		dst[dstIdx] = base64Chars[(v>>18)&0x3F]
+		dst[dstIdx+1] = base64Chars[(v>>12)&0x3F]
+		dst[dstIdx+2] = base64Chars[(v>>6)&0x3F]
+		dst[dstIdx+3] = base64Chars[v&0x3F]
+		dstIdx += 4
+	}
+	return dst
 }
 
 // GetValue appends the decoded secure cookie value to dst.

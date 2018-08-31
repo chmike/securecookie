@@ -221,34 +221,17 @@ func TestAccessorsMethods(t *testing.T) {
 func TestEncodeBase64(t *testing.T) {
 	tests := []struct {
 		in, out []byte
-		fail    bool
 	}{ // requires that len(in)%3 == 0
 		{in: []byte{}, out: []byte{}},
 		{in: []byte{0, 0, 0}, out: []byte{65, 65, 65, 65}},
 		{in: []byte{255, 255, 255}, out: []byte{95, 95, 95, 95}},
-		{in: []byte{0, 1, 2, 3, 4}, out: nil, fail: true},
 		{in: []byte{0, 1, 2, 3, 4, 5}, out: []byte{65, 65, 69, 67, 65, 119, 81, 70}},
 		{in: []byte{3, 200, 254}, out: []byte{65, 56, 106, 45}},
 	} // out == base64.URLEncoding.WithPadding(base64.NoPadding).Encode(out, in)
 	for _, test := range tests {
 		var encLen = (len(test.in)*8 + 5) / 6
 		var buf = make([]byte, 0, encLen+10)
-		out, err := encodeBase64(buf, test.in)
-		if !test.fail && len(out) != encLen {
-			t.Errorf("got encoding len %d, expected %d for input %v", len(out), encLen, test.in)
-			continue
-		}
-		if err != nil && !test.fail {
-			t.Errorf("got base64 encoding error '%s', expected no error", err)
-			continue
-		}
-		if err == nil && test.fail {
-			t.Errorf("got base64 encoding nil error, expected to fail")
-			continue
-		}
-		if test.fail || err != nil {
-			continue
-		}
+		out := encodeBase64(buf, test.in)
 		if !bytes.Equal(out, test.out) {
 			t.Errorf("got base64 encoding output %v, expected %v for input %v", out, test.out, test.in)
 			continue
@@ -530,10 +513,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
-	buf, err = encodeBase64(buf[:0], dec)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
+	buf = encodeBase64(buf[:0], dec)
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -556,10 +536,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
-	buf, err = encodeBase64(buf[:0], dec)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
+	buf = encodeBase64(buf[:0], dec)
 	purgeBufPool()
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
