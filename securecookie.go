@@ -463,46 +463,47 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	return append(dst, b[stampLen:len(b)-nPad]...), nil
 }
 
-// decodeBase64 appends base64 encoded src to dst.
-// Returns an error if len(src)%4 != 0 or src is not valid base64 encoding.
-// Requires cap(dst) - len(dst) >= (len(src)/4)*3.
+// decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
+// Returns an error if len(src)%4 != 0 or src doesn't contain a valid base64 encoding.
+// Requires src and dst don't overlap.
 func decodeBase64(dst []byte, src string) ([]byte, error) {
+	var tbl = []int8{
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1,
+		52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
+		-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+		15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, 63,
+		-1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+		41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	}
 	if len(src)%4 != 0 {
 		return dst, fmt.Errorf("invalid length %d, must be multiple of 4", len(src)%4)
 	}
-	var decLen = (len(src) / 4) * 3
-	var srcIdx, dstIdx = 0, len(dst)
-	if cap(dst) < len(dst)+decLen {
-		var tmp = make([]byte, len(dst), len(dst)+decLen)
-		copy(tmp, dst)
-		dst = tmp
+	var dstLen = len(dst) + len(src)*3/4
+	if cap(dst) < dstLen {
+		dst = append(make([]byte, 0, dstLen), dst...)
 	}
-	dst = dst[:len(dst)+decLen]
+	var srcIdx, dstIdx = 0, len(dst)
+	dst = dst[:dstLen]
 	for srcIdx < len(src) {
-		var v uint64
-		for i := 0; i < 4; i++ {
-			b := src[srcIdx]
-			if b >= 'A' && b <= 'Z' {
-				v = (v << 6) | uint64(b-'A')
-			} else if b >= 'a' && b <= 'z' {
-				v = (v << 6) | uint64(b-'a'+26)
-			} else if b >= '0' && b <= '9' {
-				v = (v << 6) | uint64(b-'0'+52)
-			} else if b == '-' {
-				v = (v << 6) | uint64(62)
-			} else if b == '_' {
-				v = (v << 6) | uint64(63)
-			} else {
-				return dst, errors.New("invalid base64 char")
-			}
-			srcIdx++
+		var v = int64(tbl[src[srcIdx]])<<18 | int64(tbl[src[srcIdx+1]])<<12 | int64(tbl[src[srcIdx+2]])<<6 | int64(tbl[src[srcIdx+3]])
+		srcIdx += 4
+		if v < 0 {
+			return dst, errors.New("invalid base64 char")
 		}
 		dst[dstIdx] = byte(v >> 16)
-		dstIdx++
-		dst[dstIdx] = byte(v >> 8)
-		dstIdx++
-		dst[dstIdx] = byte(v)
-		dstIdx++
+		dst[dstIdx+1] = byte(v >> 8)
+		dst[dstIdx+2] = byte(v)
+		dstIdx += 3
 	}
 	return dst, nil
 }
