@@ -553,11 +553,11 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 }
 
 func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
-	// ipad is already copied in front of the data
-	var data2 [sha256.BlockSize + sha256.Size]byte
-	copy(data2[:sha256.BlockSize], o.opad[:])
+	// ipad is already copied in front of data1
 	var digest = sha256.Sum256(data1)
-	copy(data2[sha256.BlockSize:], digest[:])
+	var data2 [sha256BlockLen + hmacLen]byte
+	copy(data2[:sha256BlockLen], o.opad[:])
+	copy(data2[sha256BlockLen:], digest[:])
 	digest = sha256.Sum256(data2[:])
 	return copy(b, digest[:])
 }
@@ -614,7 +614,10 @@ const epochOffset uint64 = 1505230500
 // hmacLen is the byte length of the hmac(SHA256) digest.
 const hmacLen = sha256.Size
 
-// aesBlockSize is the AES blockSize
+// sha256BlockLen is the size of a sha256 block.
+const sha256BlockLen = sha256.BlockSize
+
+// aesBlockSize is the AES blockSize.
 const aesBlockLen = aes.BlockSize
 
 // aesBuf is a buffer used by xorCtrAES.
