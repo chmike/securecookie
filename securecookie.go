@@ -414,7 +414,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	}
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
-	var bLen = sha256.BlockSize + len(o.name) + len(val)
+	var bLen = sha256BlockLen + len(o.name) + len(val)
 	if cap(*bPtr) < bLen {
 		*bPtr = make([]byte, bLen+20)
 	}
