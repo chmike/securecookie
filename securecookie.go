@@ -1,53 +1,73 @@
 /*
-Package securecookie is a fast, efficient and safe cookie value encoder/decoder.
+Package securecookie is a fast, efficient and safe cookie value
+encoder/decoder.
 
-A secure cookie has its value ciphered and signed with a message authentication
-code. This prevents the remote cookie owner from knowing what information is stored
-in the cookie or modifying it. It also prevents an attacker from forging a fake
-cookie.
+A secure cookie has its value ciphered and signed with a message
+authentication code. This prevents the remote cookie owner from
+knowing what information is stored in the cookie or modifying it.
+It also prevents an attacker from forging a fake securecookie.
 
-What makes this secure cookie package different is that it is fast (faster than
-the Gorilla secure cookie), and value encoding and decoding needs zero heap
-allocations.
+What makes this secure cookie package different is that it is fast
+(faster than the Gorilla secure cookie), and the value encoding
+and decoding needs no heap allocations.
 
-The intended use is to instantiate all secure cookie objects of your web site at
-program start up. In the following example "session" is the cookie name. The key
-is a byte sequence generated with the GenerateRandomKey() function.
-The same key must be used to retrieve the value. It is unsafe to store the key in
-code.
+The intended use is to instantiate all secure cookie objects of
+your web site at program start up. In the following example "session"
+is the cookie name. The key is a byte sequence generated with the
+GenerateRandomKey() function. The same key must be used to retrieve
+the value.
 
 	obj, err := securecookie.New("session", key, securecookie.Params{
-		Path:     "/sec",        // cookie received only when URL starts with this path
-		Domain:   "example.com", // cookie received only when URL domain matches this one
-		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // cookie inaccessible to remote browser scripts
-		Secure:   true,          // cookie received only with HTTPS, never with HTTP
+		Path:     "/sec",        // cookie received only when URL
+		                         // starts with this path.
+		Domain:   "example.com", // cookie received only when URL
+		                         // domain matches this one.
+		MaxAge:   3600,          // cookie becomes invalid 3600
+		                         // seconds after it is set.
+		HTTPOnly: true,          // cookie inaccessible to remote
+		                         // browser scripts.
+		Secure:   true,          // cookie received only with HTTPS,
+		                         // never with HTTP.
 	})
 	if err != nil {
 		// ...
 	}
 
-A securecookie object is immutable. It's methods can be called from different goroutines.
+An securecookie can also be instantiated as a global variable with the
+MustNew function. The function will panic if an error occurs.
 
-To set a cookie value, call the SetValue() method with a http.ResponseWriter w, and a
-value val as arguments.
+	var obj = securecookie.MustNew("session", key, securecookie.Params{
+		Path:     "/sec",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	})
+
+
+A securecookie object is immutable. It's methods can be called from
+different goroutines. The Delete(), SetValue() and GetValue() methods
+are independent.
+
+To set a cookie value, call the SetValue() method with a http.ResponseWriter
+w, and a value val as arguments.
 
     var val = []byte("some value")
     if err := obj.SetValue(w, val); err != nil {
 		// ...
 	}
 
-A securecookie value is retrieved from an http.Request with the GetValue() method
-and is appended to the given buffer, extending it if required. If buf is nil, a new
-buffer is allocated.
+A securecookie value is retrieved from an http.Request with the GetValue()
+method and is appended to the given buffer, extending it if required. If
+buf is nil, a new buffer is allocated.
 
     val, err := obj.GetValue(buf, r)
 	if err != nil {
 		// ...
 	}
 
-A securecookie is deleted by calling the Delete() method with the http.ResponseWriter w
-as argument.
+A securecookie is deleted by calling the Delete() method with the
+http.ResponseWriter w as argument.
 
     if err := obj.Delete(r); err != nil {
 		// ...
@@ -110,7 +130,7 @@ type Obj struct {
 }
 
 // MustNew panics if New returns a non-nil error, otherwise returns a cookie
-// object. The intended use is to initialize global variables.
+// object. The intended use is to instantiate the object as a global variable.
 func MustNew(name string, key []byte, p Params) *Obj {
 	o, err := New(name, key, p)
 	if err != nil {
