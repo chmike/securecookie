@@ -10,40 +10,44 @@ What makes this secure cookie package different is that it is fast (faster than
 the Gorilla secure cookie), and value encoding and decoding needs zero heap
 allocations.
 
-The intended use is to instantiate at start up all secure cookie objects your
-web site may have to deal with. For instance:
+The intended use is to instantiate all secure cookie objects of your web site at
+program start up. In the following example "session" is the cookie name. The key
+is a byte sequence generated with the GenerateRandomKey() function.
+The same key must be used to retrieve the value. It is unsafe to store the key in
+code.
 
-	obj, err := securecookie.New("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie is received only when URL starts with this path
-		Domain:   "example.com", // cookie is received only when URL domain matches this one
+	obj, err := securecookie.New("session", key, securecookie.Params{
+		Path:     "/sec",        // cookie received only when URL starts with this path
+		Domain:   "example.com", // cookie received only when URL domain matches this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // cookie is inaccessible to remote browser scripts
-		Secure:   true,          // cookie is received only with HTTPS, never with HTTP
+		HTTPOnly: true,          // cookie inaccessible to remote browser scripts
+		Secure:   true,          // cookie received only with HTTPS, never with HTTP
 	})
 	if err != nil {
 		// ...
 	}
 
-You may then set a secure cookie value in your handler with w being the
-http.ResponseWriter. Note that obj is not modified by this call.
+A securecookie object is immutable. It's methods can be called from different goroutines.
+
+To set a cookie value, call the SetValue() method with a http.ResponseWriter w, and a
+value val as arguments.
 
     var val = []byte("some value")
     if err := obj.SetValue(w, val); err != nil {
 		// ...
 	}
 
-You may then get the secure value with r being the *http.Request. Note
-that obj is not modified by this call. The value is appended to buf. If
-buf is nil, a new buffer is allocated. If it is too small, it is grown.
+A securecookie value is retrieved from an http.Request with the GetValue() method
+and is appended to the given buffer, extending it if required. If buf is nil, a new
+buffer is allocated.
 
     val, err := obj.GetValue(buf, r)
 	if err != nil {
 		// ...
 	}
 
-A method is also provided to delete the cookie with r being the *http.Request.
-Note that obj is not modified by this call. It is possible to set a new cookie
-value afterwards.
+A securecookie is deleted by calling the Delete() method with the http.ResponseWriter w
+as argument.
 
     if err := obj.Delete(r); err != nil {
 		// ...
@@ -80,17 +84,13 @@ func GenerateRandomKey() ([]byte, error) {
 	return key, nil
 }
 
-// A Params value holds the cookie parameters. Use BytesToString() to convert a
-// []byte value to a string value without allocation and data copy, but it
-// requires that the value is not modified after the conversion. To delete a
-// cookie, set expire in the past and the path and domain that are in the cookie
-// to delete.
+// Params holds the optional cookie parameters.
 type Params struct {
 	Path     string // Optional : URL path to which the cookie will be returned
 	Domain   string // Optional : domain to which the cookie will be returned
-	MaxAge   int    // Optional : time offset in seconds from now, must be > 0
-	HTTPOnly bool   // Optional : disallow access to the cookie by user agent scripts
-	Secure   bool   // Optional : cookie can only be sent over HTTPS connections
+	MaxAge   int    // Optional : time offset in seconds from now, must be >= 0
+	HTTPOnly bool   // Optional : disallow access by remote javascript code
+	Secure   bool   // Optional : cookie is only sent through HTTPS connections
 }
 
 // Obj is a validated cookie object.
@@ -119,7 +119,8 @@ func MustNew(name string, key []byte, p Params) *Obj {
 	return o
 }
 
-// New instantiates a validated cookie parameter field set with an associated key.
+// New instantiates a validated cookie object with the given cookie name, key
+// and parameters.
 func New(name string, key []byte, p Params) (*Obj, error) {
 	block, err := aes.NewCipher(key[len(key)/2:])
 	if err != nil {
@@ -194,7 +195,7 @@ func checkName(name string) error {
 	return nil
 }
 
-// checkPath returns an error if the cookie path is invalid
+// checkPath returns an error if the cookie path is invalid.
 func checkPath(path string) error {
 	if err := checkChars(path, isValidPathChar); err != nil {
 		return fmt.Errorf("securecookie: path has %s", err)
@@ -202,7 +203,7 @@ func checkPath(path string) error {
 	return nil
 }
 
-// checkDomain returns an error if the domain name is not valid
+// checkDomain returns an error if the domain name is not valid.
 // See https://tools.ietf.org/html/rfc1034#section-3.5 and
 // https://tools.ietf.org/html/rfc1123#section-2.
 func checkDomain(name string) error {
@@ -280,33 +281,33 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
-// Path returns the cookie path field value.
+// Path returns the securecookie path field value.
 func (o *Obj) Path() string {
 	return o.path
 }
 
-// Domain returns the cookie domain field value.
+// Domain returns the securecookie domain field value.
 func (o *Obj) Domain() string {
 	return o.domain
 }
 
-// MaxAge returns the cookie max age field value.
+// MaxAge returns the securecookie max age field value.
 func (o *Obj) MaxAge() int {
 	return o.maxAge
 }
 
-// HTTPOnly returns the cookie HTTPOnly field value.
+// HTTPOnly returns the securecookie HTTPOnly field value.
 func (o *Obj) HTTPOnly() bool {
 	return o.httpOnly
 }
 
-// Secure returns the cookie HTTPOnly field value.
+// Secure returns the securecookie HTTPOnly field value.
 func (o *Obj) Secure() bool {
 	return o.secure
 }
 
-// SetValue adds the cookie with the value v to the server response w.
-// The value v is encrypted and encoded in base64.
+// SetValue adds the securecookie with the value v to the server response w.
+// The value v is encrypted, signed with a MAC, and encoded in base64.
 func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := (*bPtr)[:0]
@@ -374,7 +375,8 @@ func encodeUint64(b []byte, v uint64) int {
 }
 
 // encodeBase64 appends the base64 encoding of src to dst. Grow dst if needed.
-// Requires that length of src is a multiple of three, and that src and dst don't overlap.
+// Requires that length of src is a multiple of three, and that src and dst
+// don't overlap.
 func encodeBase64(dst, src []byte) []byte {
 	const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	dstLen := len(dst) + len(src)*8/6
@@ -395,7 +397,7 @@ func encodeBase64(dst, src []byte) []byte {
 	return dst
 }
 
-// GetValue appends the decoded secure cookie value to dst.
+// GetValue appends the decoded securecookie value to dst.
 // dst is allocated if nil, or grown if too small.
 func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 	c, err := r.Cookie(o.name)
@@ -526,8 +528,8 @@ func decodeUint64(b []byte) (uint64, int) {
 	return 0, 0
 }
 
-// Delete sends a request to the remote user agent to delete the given
-// cookie. Note that the user agent may not execute the request.
+// Delete adds a request to the delete the securecookie to the server
+// response w. The user agent may ignore the request.
 func (o *Obj) Delete(w http.ResponseWriter) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := (*bPtr)[:0]
@@ -563,8 +565,8 @@ func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
 	return copy(b, digest[:])
 }
 
-// xorCtrAes computes the xor of data with encrypted ctr counter initialized with iv.
-// It leaks timing information, but it is not a problem since the iv is public.
+// xorCtrAes computes the xor of data with encrypted ctr counter initialized
+// with iv.
 func (o *Obj) xorCtrAes(iv []byte, data []byte) {
 	var buf = aesBufPool.Get().(*aesBuf)
 	defer aesBufPool.Put(buf)
@@ -642,8 +644,8 @@ const maxCookieLen = 4000
 // forceError is used for 100% test coverage.
 var forceError int
 
-// buffer pool.
+// pool of buffers used for value encoding and decoding.
 var bufPool = sync.Pool{New: func() interface{} { var b []byte; return &b }}
 
-// aesBufPool is a pool of aes buffers.
+// pool of aesBuf used to cipher and decipher with XOR-CTR-AES.
 var aesBufPool = sync.Pool{New: func() interface{} { return new(aesBuf) }}
