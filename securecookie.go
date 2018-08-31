@@ -565,25 +565,25 @@ func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
 // xorCtrAes computes the xor of data with encrypted ctr counter initialized with iv.
 // It leaks timing information, but it is not a problem since the iv is public.
 func (o *Obj) xorCtrAes(iv []byte, data []byte) {
-	var buf = hmacBlockPool.Get().(*hmacBlock)
-	defer hmacBlockPool.Put(buf)
-	var ctr = buf[:blockLen]
-	var bits = buf[blockLen:]
+	var buf = aesBufPool.Get().(*aesBuf)
+	defer aesBufPool.Put(buf)
+	var ctr = buf[:aesBlockLen]
+	var bits = buf[aesBlockLen:]
 	for i := range ctr {
 		ctr[i] = iv[i]
 	}
-	for len(data) > blockLen {
+	for len(data) > aesBlockLen {
 		o.block.Encrypt(bits, ctr)
 		for i := range bits {
 			data[i] ^= bits[i]
 		}
-		for i := blockLen - 1; i >= 0; i-- {
+		for i := aesBlockLen - 1; i >= 0; i-- {
 			ctr[i]++
 			if ctr[i] != 0 {
 				break
 			}
 		}
-		data = data[blockLen:]
+		data = data[aesBlockLen:]
 	}
 	o.block.Encrypt(bits, ctr)
 	for i := range data {
@@ -614,23 +614,20 @@ const epochOffset uint64 = 1505230500
 // hmacLen is the byte length of the hmac(SHA256) digest.
 const hmacLen = sha256.Size
 
-// hmacBlock is an array of hmacLen bytes.
-type hmacBlock [hmacLen]byte
+// aesBlockSize is the AES blockSize
+const aesBlockLen = aes.BlockSize
+
+// aesBuf is a buffer used by xorCtrAES.
+type aesBuf [2 * aesBlockLen]byte
 
 // ivLen is the byte length of the iv.
-const ivLen = blockLen
+const ivLen = aesBlockLen
 
 // maxStampLen is the maximum byte length of the time stamp (seconds).
 const maxStampLen = 10
 
 // maxPaddingLen is the maximum number of padding bytes.
 const maxPaddingLen = 2
-
-// blockLen is the byte length of an AES block.
-const blockLen = aes.BlockSize
-
-// byteBlock is an array of blockLen bytes.
-type byteBlock [blockLen]byte
 
 // minEncLen is the minimum encoding length of a value.
 const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
@@ -644,5 +641,5 @@ var forceError int
 // buffer pool.
 var bufPool = sync.Pool{New: func() interface{} { var b []byte; return &b }}
 
-// hmacBlockPool is a pool of hmac blocks.
-var hmacBlockPool = sync.Pool{New: func() interface{} { return new(hmacBlock) }}
+// aesBufPool is a pool of aes buffers.
+var aesBufPool = sync.Pool{New: func() interface{} { return new(aesBuf) }}
