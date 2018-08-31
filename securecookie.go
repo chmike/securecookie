@@ -126,7 +126,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		return nil, err
 	}
 	if len(key) != KeyLen {
-		return nil, fmt.Errorf("key length is %d, expected %d", len(key), KeyLen)
+		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
 	}
 	if err := checkName(name); err != nil {
 		return nil, err
@@ -138,7 +138,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		return nil, err
 	}
 	if p.MaxAge < 0 {
-		return nil, errors.New("max age can't be negative")
+		return nil, errors.New("securecookie: MaxAge can't be negative")
 	}
 	var buf bytes.Buffer
 	if len(p.Path) > 0 {
@@ -186,10 +186,10 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 // checkName returns an error if the cookie name is invalid.
 func checkName(name string) error {
 	if len(name) == 0 {
-		return errors.New("cookie name: empty value")
+		return errors.New("securecookie: cookie name must not be empty")
 	}
 	if err := checkChars(name, isValidNameChar); err != nil {
-		return fmt.Errorf("cookie name: %s", err)
+		return fmt.Errorf("securecookie: name has %s", err)
 	}
 	return nil
 }
@@ -197,7 +197,7 @@ func checkName(name string) error {
 // checkPath returns an error if the cookie path is invalid
 func checkPath(path string) error {
 	if err := checkChars(path, isValidPathChar); err != nil {
-		return fmt.Errorf("cookie path: %s", err)
+		return fmt.Errorf("securecookie: path has %s", err)
 	}
 	return nil
 }
@@ -210,7 +210,7 @@ func checkDomain(name string) error {
 	case len(name) == 0:
 		return nil // an empty domain name will result in a cookie without a domain restriction
 	case len(name) > 255:
-		return fmt.Errorf("cookie domain: name length is %d, can't exceed 255", len(name))
+		return fmt.Errorf("securecookie: domain name length is %d, can't exceed 255", len(name))
 	}
 	var l int
 	for i := 0; i < len(name); i++ {
@@ -219,13 +219,13 @@ func checkDomain(name string) error {
 			// check domain labels validity
 			switch {
 			case i == l:
-				return fmt.Errorf("cookie domain: invalid character '%c' at offset %d: label can't begin with a period", b, i)
+				return fmt.Errorf("securecookie: domain has invalid character '.' at offset %d, label can't begin with a period", i)
 			case i-l > 63:
-				return fmt.Errorf("cookie domain: byte length of label '%s' is %d, can't exceed 63", name[l:i], i-l)
+				return fmt.Errorf("securecookie: domain byte length of label '%s' is %d, can't exceed 63", name[l:i], i-l)
 			case name[l] == '-':
-				return fmt.Errorf("cookie domain: label '%s' at offset %d begins with a hyphen", name[l:i], l)
+				return fmt.Errorf("securecookie: domain label '%s' at offset %d begins with a hyphen", name[l:i], l)
 			case name[i-1] == '-':
-				return fmt.Errorf("cookie domain: label '%s' at offset %d ends with a hyphen", name[l:i], l)
+				return fmt.Errorf("securecookie: domain label '%s' at offset %d ends with a hyphen", name[l:i], l)
 			}
 			l = i + 1
 			continue
@@ -235,23 +235,23 @@ func checkDomain(name string) error {
 			// show the printable unicode character starting at byte offset i
 			c, _ := utf8.DecodeRuneInString(name[i:])
 			if c == utf8.RuneError {
-				return fmt.Errorf("cookie domain: invalid rune at offset %d", i)
+				return fmt.Errorf("securecookie: domain has invalid rune at offset %d", i)
 			}
-			return fmt.Errorf("cookie domain: invalid character '%c' at offset %d", c, i)
+			return fmt.Errorf("securecookie: domain has invalid character '%c' at offset %d", c, i)
 		}
 	}
 	// check top level domain validity
 	switch {
 	case l == len(name):
-		return fmt.Errorf("cookie domain: missing top level domain, domain can't end with a period")
+		return fmt.Errorf("securecookie: domain has missing top level domain, domain can't end with a period")
 	case len(name)-l > 63:
-		return fmt.Errorf("cookie domain: byte length of top level domain '%s' is %d, can't exceed 63", name[l:], len(name)-l)
+		return fmt.Errorf("securecookie: domain's top level domain '%s' has byte length %d, can't exceed 63", name[l:], len(name)-l)
 	case name[l] == '-':
-		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d begins with a hyphen", name[l:], l)
+		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d begin with a hyphen", name[l:], l)
 	case name[len(name)-1] == '-':
-		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d ends with a hyphen", name[l:], l)
+		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d ends with a hyphen", name[l:], l)
 	case name[l] >= '0' && name[l] <= '9':
-		return fmt.Errorf("cookie domain: top level domain '%s' at offset %d begins with a digit", name[l:], l)
+		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d begins with a digit", name[l:], l)
 	}
 	return nil
 }
@@ -317,7 +317,7 @@ func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 	}
 	var valLen = len(o.begStr) + len(b) + len(o.endStr)
 	if valLen > maxCookieLen {
-		return fmt.Errorf("cookie too long: len is %d, max is %d", valLen, maxCookieLen)
+		return fmt.Errorf("securecookie: cookie value has byte length %d, can't exceed %d", valLen, maxCookieLen)
 	}
 	w.Header().Add("Set-Cookie", o.begStr+string(b)+o.endStr)
 	return nil
@@ -410,7 +410,7 @@ func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 // Requires: len(val) >= minEncLen && len(val)%4 == 0.
 func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	if len(val) < minEncLen {
-		return dst, errors.New("encoded value too short")
+		return dst, errors.New("securecookie: encoded value is too short")
 	}
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
@@ -428,11 +428,11 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	}
 	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
 	if version != encodingVersion {
-		return dst, fmt.Errorf("invalid encoding version %d, expected value <= %d",
+		return dst, fmt.Errorf("securecookie: invalid encoding version %d, expected value <= %d",
 			version, encodingVersion)
 	}
 	if nPad > maxPaddingLen {
-		return dst, fmt.Errorf("invalid padding length %d, expected value <= %d",
+		return dst, fmt.Errorf("securecookie: invalid padding length %d, expected value <= %d",
 			nPad, maxPaddingLen)
 	}
 	var valMac = b[len(b)-hmacLen:]
@@ -445,20 +445,20 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 		x |= valMac[i] ^ locMac[i]
 	}
 	if x != 0 {
-		return nil, errors.New("MAC mismatch")
+		return nil, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
 	}
 	var iv = b[1 : 1+ivLen]
 	b = b[1+ivLen:]
 	o.xorCtrAes(iv, b)
 	stamp, stampLen := decodeUint64(b)
 	if stampLen == 0 {
-		return dst, errors.New("invalid time stamp encoding")
+		return dst, errors.New("securecookie: invalid cookie time stamp encoding")
 	}
 	stamp += epochOffset
 	var valStamp = time.Unix(int64(stamp), 0)
 	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
 	if time.Now().Before(valStamp) || time.Now().After(maxStamp) {
-		return dst, errors.New("invalid time stamp")
+		return dst, errors.New("securecookie: invalid cookie time stamp value")
 	}
 	return append(dst, b[stampLen:len(b)-nPad]...), nil
 }
@@ -486,7 +486,7 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	}
 	if len(src)%4 != 0 {
-		return dst, fmt.Errorf("invalid length %d, must be multiple of 4", len(src)%4)
+		return dst, fmt.Errorf("securecookie: invalid encoded cookie length %d, must be multiple of 4", len(src)%4)
 	}
 	var dstLen = len(dst) + len(src)*3/4
 	if cap(dst) < dstLen {
@@ -498,7 +498,7 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 		var v = int64(tbl[src[srcIdx]])<<18 | int64(tbl[src[srcIdx+1]])<<12 | int64(tbl[src[srcIdx+2]])<<6 | int64(tbl[src[srcIdx+3]])
 		srcIdx += 4
 		if v < 0 {
-			return dst, errors.New("invalid base64 char")
+			return dst, errors.New("securecookie: invalid base64 char")
 		}
 		dst[dstIdx] = byte(v >> 16)
 		dst[dstIdx+1] = byte(v >> 8)
