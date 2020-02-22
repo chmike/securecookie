@@ -104,6 +104,16 @@ func GenerateRandomKey() ([]byte, error) {
 	return key, nil
 }
 
+// MustGenerateRandomKey returns a random key of KeyLen bytes.
+// It calls GenerateRandomKey and panics if it returns an error.
+func MustGenerateRandomKey() []byte {
+	key, err := GenerateRandomKey()
+	if err != nil {
+		panic("securecookie: generate random key: " + err.Error())
+	}
+	return key
+}
+
 // Params holds the optional cookie parameters.
 type Params struct {
 	Path     string // Optional : URL path to which the cookie will be returned

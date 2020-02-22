@@ -27,6 +27,21 @@ func TestGenerateKeyErrors(t *testing.T) {
 	}
 }
 
+func TestMustGenerateRandomKey(t *testing.T) {
+	key := MustGenerateRandomKey()
+	if len(key) != KeyLen {
+		t.Errorf("len of key is %d, expected %d", len(key), KeyLen)
+	}
+	forceError = 1
+	defer func() { forceError = 0 }()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic")
+		}
+	}()
+	MustGenerateRandomKey()
+}
+
 func TestCheckName(t *testing.T) {
 	if err := checkName("toto"); err != nil {
 		t.Errorf("unexpected error: %s", err)

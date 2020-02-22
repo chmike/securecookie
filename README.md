@@ -57,7 +57,7 @@ It is strongly recommended to generate the random key with the following functio
 Save the key in a file using `hex.EncodeToString()` and restrict access to that file.
 
 ``` Go
-var key []byte = securecookie.GenerateRandomKey()
+var key []byte = securecookie.MustGenerateRandomKey()
 ```
 
 To mitigate the risk of an attacker getting the saved key, you might store a second
@@ -67,7 +67,8 @@ difficult.
 
 ### Instantiating a cookie object
 
-To return an error if an argument is invalid, use `securecookie.New()`.
+A secure cookie is instantiated with the `New` function. It returns an error if an
+argument is invalid.
 
 ``` Go
 obj, err := securecookie.New("session", key, securecookie.Params{
