@@ -147,7 +147,7 @@ effectively delete the cookie. Evil users will try anything to break your site.
 Encoding the cookie named "test" with value "some value". See benchmark functions
 are at the bottom of cookie_test.go file. The ns/op values were obtained by running
 the benchmark 10 times and taking the minimal value. These values were obtained with
-go1.14 (27-Feb-2020).
+go1.14 (27-Feb-2020) on an Ubuntu OS with an i5-7400 3GHz processor. 
 
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
