@@ -145,18 +145,19 @@ effectively delete the cookie. Evil users will try anything to break your site.
 ## Benchmarking
 
 Encoding the cookie named "test" with value "some value". See benchmark functions
-at the bottom of cookie_test.go file. The ns/op values were obtained by running
-the benchmark 10 times and taking the minimal value.
+are at the bottom of cookie_test.go file. The ns/op values were obtained by running
+the benchmark 10 times and taking the minimal value. These values were obtained with
+go1.14 (27-Feb-2020).
 
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
 |      Value len |       84 |      112 |
-|      Set ns/op |     5527 |    14946 |
-|      Get ns/op |     4421 |    21142 |
-|       Set B/op |      342 |     3322 |
-|       Get B/op |      200 |     2784 |
-|  Set allocs/op |        3 |       37 |
-|  Get allocs/op |        3 |       39 |
+|      Set ns/op |     2393 |     6309 |
+|      Get ns/op |     1515 |     5199 |
+|       Set B/op |      350 |     2994 |
+|       Get B/op |      192 |     2720 |
+|  Set allocs/op |        3 |       35 |
+|  Get allocs/op |        2 |       38 |
 
 The secure cookie value encoding and decoding functions of this package need 0 
 heap allocations. 
