@@ -311,6 +311,11 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
+// Name return the securecookie name field value.
+func (o *Obj) Name() string {
+	return o.name
+}
+
 // Path returns the securecookie path field value.
 func (o *Obj) Path() string {
 	return o.path
@@ -334,6 +339,11 @@ func (o *Obj) HTTPOnly() bool {
 // Secure returns the securecookie HTTPOnly field value.
 func (o *Obj) Secure() bool {
 	return o.secure
+}
+
+// Key returns the securecookie Key.
+func (o *Obj) Key() []byte {
+	return o.key
 }
 
 // SetValue adds the securecookie with the value v to the server response w.

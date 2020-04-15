@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -203,7 +204,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestAccessorsMethods(t *testing.T) {
-	key := make([]byte, KeyLen)
+	key := MustGenerateRandomKey()
 	name := "test"
 	params := Params{
 		Path:     "path",
@@ -230,6 +231,12 @@ func TestAccessorsMethods(t *testing.T) {
 	}
 	if obj.Secure() != params.Secure {
 		t.Errorf("got secure %t, expected %t", obj.Secure(), params.Secure)
+	}
+	if obj.Name() != name {
+		t.Errorf("got name '%s', expected '%s'", obj.Name(), name)
+	}
+	if !reflect.DeepEqual(obj.Key(), key) {
+		t.Errorf("got key %v, expected %v", obj.Key(), key)
 	}
 }
 
