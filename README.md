@@ -144,16 +144,17 @@ effectively delete the cookie. Evil users will try anything to break your site.
 
 ### Complete example
 
-An complete example is provided [here](http://github.com/chmike/securecookie/example/main.go).
+An complete example is provided [here](https://github.com/chmike/securecookie/blob/master/example/main.go).
 
 Follow these steps to test the example:
 
 1. create a directory in /tmp and set it as the working directory: "mkdir /tmp/sctest; cd /tmp/sctest"
 2. create a file named `main.go` and copy the example code referenced above into it
 3. create a go.mod file: "go mod init example.com"
-4. run the server: "go run main.go"
-5. with your browser, request "http://localhost:8080/set/someValue" to set the secure cookie value
-6. with your browser, request "http://localhost:8080/val" to retriev the secure cookie value
+4. get the latest version of the securecookie packaqe: "go get github.com/chmike/securecookie@v1.2.0"
+5. run the server: "go run main.go"
+6. with your browser, request "http://localhost:8080/set/someValue" to set the secure cookie value
+7. with your browser, request "http://localhost:8080/val" to retriev the secure cookie value
 
 ## Benchmarking
 
