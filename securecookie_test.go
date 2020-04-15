@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -234,9 +233,6 @@ func TestAccessorsMethods(t *testing.T) {
 	}
 	if obj.Name() != name {
 		t.Errorf("got name '%s', expected '%s'", obj.Name(), name)
-	}
-	if !reflect.DeepEqual(obj.Key(), key) {
-		t.Errorf("got key %v, expected %v", obj.Key(), key)
 	}
 }
 

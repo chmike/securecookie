@@ -341,11 +341,6 @@ func (o *Obj) Secure() bool {
 	return o.secure
 }
 
-// Key returns the securecookie Key.
-func (o *Obj) Key() []byte {
-	return o.key
-}
-
 // SetValue adds the securecookie with the value v to the server response w.
 // The value v is encrypted, signed with a MAC, and encoded in base64.
 func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
