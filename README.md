@@ -144,7 +144,7 @@ effectively delete the cookie. Evil users will try anything to break your site.
 
 ### Complete example
 
-An complete example is provided [here](https://github.com/chmike/securecookie/blob/master/example/main.go).
+An complete example is provided [here](example/main.go).
 
 Follow these steps to test the example:
 
