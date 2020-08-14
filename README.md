@@ -76,8 +76,8 @@ obj, err := securecookie.New("session", key, securecookie.Params{
 		Domain:   "example.com", // cookie received only when URL domain matches this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,          // disallow access by remote javascript code 
-        Secure:   true,          // cookie received only with HTTPS, never with HTTP
-        SameSite: Lax,           // cookie received with same or sub-domain names
+		Secure:   true,          // cookie received only with HTTPS, never with HTTP
+		SameSite: Lax,           // cookie received with same or sub-domain names
 })
 if err != nil {
     // ...
@@ -100,8 +100,8 @@ var obj = securecookie.MustNew("Auth", key, securecookie.Params{
 		Domain:   "example.com", // cookie received only when URL domain matches this one
 		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,          // disallow access by remote javascript code 
-        Secure:   true,          // cookie received only with HTTPS, never with HTTP
-        SameSite: Lax,           // cookie received with same or sub-domain names
+		Secure:   true,          // cookie received only with HTTPS, never with HTTP
+		SameSite: Lax,           // cookie received with same or sub-domain names
 }
 ```
 
