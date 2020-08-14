@@ -27,7 +27,8 @@ the value.
 		HTTPOnly: true,          // disallow access by remote
 		                         // javascript code.
 		Secure:   true,          // cookie received only with HTTPS,
-		                         // never with HTTP.
+								 // never with HTTP.
+	    SameSite: securecookie.Strict, // cookie returned only
 	})
 	if err != nil {
 		// ...
@@ -93,6 +94,14 @@ import (
 // KeyLen is the byte length of the key.
 const KeyLen = 32
 
+// Keywords used for parameter value.
+const (
+	Undefined int = iota
+	Lax
+	None
+	Strict
+)
+
 // GenerateRandomKey returns a random key of KeyLen bytes.
 // Use hex.EncodeToString(key) to get the key as hexadecimal string,
 // and hex.DecodeString(keyStr) to convert back from string to byte slice.
@@ -121,6 +130,7 @@ type Params struct {
 	MaxAge   int    // Optional : time offset in seconds from now, must be >= 0
 	HTTPOnly bool   // Optional : disallow access by remote javascript code
 	Secure   bool   // Optional : cookie is only sent through HTTPS connections
+	SameSite int    // Optional : (None, Lax, or Strict) restrict cookie return (None requires Secure)
 }
 
 // Obj is a validated cookie object.
@@ -134,6 +144,7 @@ type Obj struct {
 	maxAge   int
 	httpOnly bool
 	secure   bool
+	sameSite int
 	ipad     [sha256.BlockSize]byte
 	opad     [sha256.BlockSize]byte
 	block    cipher.Block
@@ -190,6 +201,16 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if p.Secure {
 		buf.WriteString("; Secure")
 	}
+	switch p.SameSite {
+	case None:
+		if p.Secure {
+			buf.WriteString("; SameSite=None")
+		}
+	case Lax:
+		buf.WriteString("; SameSite=lax")
+	case Strict:
+		buf.WriteString("; SameSite=Strict")
+	}
 	var begStr = name + "="
 	var o = &Obj{
 		key:      key,
@@ -201,6 +222,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		maxAge:   p.MaxAge,
 		httpOnly: p.HTTPOnly,
 		secure:   p.Secure,
+		sameSite: p.SameSite,
 		block:    block,
 	}
 	for i := range o.ipad {
@@ -339,6 +361,13 @@ func (o *Obj) HTTPOnly() bool {
 // Secure returns the securecookie HTTPOnly field value.
 func (o *Obj) Secure() bool {
 	return o.secure
+}
+
+// SameSite returns the same site field value. Note that the value None is
+// ignored when the cookie is not secure. When SameSite is undefined, the
+// default is Lax.
+func (o *Obj) SameSite() int {
+	return o.sameSite
 }
 
 // SetValue adds the securecookie with the value v to the server response w.
@@ -585,6 +614,16 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 	}
 	if o.secure {
 		b = append(b, "; Secure"...)
+	}
+	switch o.sameSite {
+	case None:
+		if o.secure {
+			b = append(b, "; SameSite=None"...)
+		}
+	case Lax:
+		b = append(b, "; SameSite=Lax"...)
+	case Strict:
+		b = append(b, "; SameSite=Strict"...)
 	}
 	w.Header().Add("Set-Cookie", string(b))
 	return nil

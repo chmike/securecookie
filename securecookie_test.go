@@ -181,6 +181,9 @@ func TestNew(t *testing.T) {
 		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{key: k, name: n, httpOnly: true}},
 		{k: k, n: n, p: Params{Secure: true}, o: &Obj{key: k, name: n, secure: true}},
 		{k: kb, n: n, p: Params{Secure: true}, o: &Obj{key: kb, name: n, secure: true}, fail: true},
+		{k: k, n: n, p: Params{SameSite: None}, o: &Obj{key: k, name: n, sameSite: None}},
+		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{key: k, name: n, sameSite: Lax}},
+		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{key: k, name: n, sameSite: Strict}},
 	}
 	for _, test := range tests {
 		obj, err := New(test.n, test.k, test.p)
@@ -211,6 +214,7 @@ func TestAccessorsMethods(t *testing.T) {
 		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
+		SameSite: Strict,
 	}
 	obj, err := New(name, key, params)
 	if err != nil {
@@ -233,6 +237,9 @@ func TestAccessorsMethods(t *testing.T) {
 	}
 	if obj.Name() != name {
 		t.Errorf("got name '%s', expected '%s'", obj.Name(), name)
+	}
+	if obj.SameSite() != Strict {
+		t.Errorf("got same site %d, expected Strict (%d)", obj.SameSite(), Strict)
 	}
 }
 
@@ -621,6 +628,7 @@ func TestDeleteCookie(t *testing.T) {
 		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
+		SameSite: None,
 	}
 	obj, err := New("test", make([]byte, KeyLen), p)
 	if err != nil {
@@ -634,6 +642,48 @@ func TestDeleteCookie(t *testing.T) {
 	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
 
 	c, err := request.Cookie("test")
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	} else {
+		if len(c.Value) != 0 {
+			t.Errorf("got value '%s', expected empty string", c.Value)
+		}
+	}
+
+	p.SameSite = Lax
+	obj, err = New("test", make([]byte, KeyLen), p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder = httptest.NewRecorder()
+	err = obj.Delete(recorder)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	request = &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+
+	c, err = request.Cookie("test")
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	} else {
+		if len(c.Value) != 0 {
+			t.Errorf("got value '%s', expected empty string", c.Value)
+		}
+	}
+
+	p.SameSite = Strict
+	obj, err = New("test", make([]byte, KeyLen), p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder = httptest.NewRecorder()
+	err = obj.Delete(recorder)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	request = &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+
+	c, err = request.Cookie("test")
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	} else {
