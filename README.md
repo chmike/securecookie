@@ -72,12 +72,12 @@ argument is invalid.
 
 ``` Go
 obj, err := securecookie.New("session", key, securecookie.Params{
-		Path:     "/sec",        // cookie received only when URL starts with this path
-		Domain:   "example.com", // cookie received only when URL domain matches this one
-		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // disallow access by remote javascript code 
-		Secure:   true,          // cookie received only with HTTPS, never with HTTP
-		SameSite: Lax,           // cookie received with same or sub-domain names
+		Path:     "/sec",           // cookie received only when URL starts with this path
+		Domain:   "example.com",    // cookie received only when URL domain matches this one
+		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+		HTTPOnly: true,             // disallow access by remote javascript code 
+		Secure:   true,             // cookie received only with HTTPS, never with HTTP
+		SameSite: securecookie.Lax, // cookie received with same or sub-domain names
 })
 if err != nil {
     // ...
@@ -96,12 +96,12 @@ method `Delete()`.
 
 ``` Go
 var obj = securecookie.MustNew("Auth", key, securecookie.Params{
-		Path:     "/sec",        // cookie received only when URL starts with this path
-		Domain:   "example.com", // cookie received only when URL domain matches this one
-		MaxAge:   3600,          // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,          // disallow access by remote javascript code 
-		Secure:   true,          // cookie received only with HTTPS, never with HTTP
-		SameSite: Lax,           // cookie received with same or sub-domain names
+		Path:     "/sec",           // cookie received only when URL starts with this path
+		Domain:   "example.com",    // cookie received only when URL domain matches this one
+		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+		HTTPOnly: true,             // disallow access by remote javascript code 
+		Secure:   true,             // cookie received only with HTTPS, never with HTTP
+		SameSite: securecookie.Lax, // cookie received with same or sub-domain names
 }
 ```
 
