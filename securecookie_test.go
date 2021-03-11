@@ -515,7 +515,6 @@ func TestDecodeValueErrorsA(t *testing.T) {
 		t.Errorf("unexpected nil error")
 	}
 	obj.maxAge += 10000
-
 }
 
 func TestDecodeValueErrorsB(t *testing.T) {
@@ -565,6 +564,35 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	purgeBufPool()
 	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestDecodeValueErrorsC(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := obj.decodeValue(nil, ""); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	buf[len(buf)-1]--
+	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf[len(buf)-1]++
+
+	if _, err := obj.decodeValue(nil, string(buf)); err != nil {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
 
