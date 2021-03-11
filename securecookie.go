@@ -523,7 +523,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	stamp += epochOffset
 	var valStamp = time.Unix(int64(stamp), 0)
 	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
-	if time.Now().Before(valStamp) || time.Now().After(maxStamp) {
+	if time.Now().Before(valStamp) || (o.maxAge > 0 && time.Now().After(maxStamp)) {
 		return dst, errors.New("securecookie: invalid cookie time stamp value")
 	}
 	return append(dst, b[stampLen:len(b)-nPad]...), nil
