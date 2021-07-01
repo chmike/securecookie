@@ -26,6 +26,8 @@ version number to support evolution with backwards compatibility.
 **Warning:** Because this package impacts security of web applications,
 it is a critical functionality. Review feedbacks are always welcome.
 
+If you enjoy the code and want to thank me 🙏, you can [buy me a coffee](https://www.buymeacoffee.com/Chmike).
+
 ## Content
 
 - [Installation](#installation)
