@@ -532,6 +532,8 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 
 // GetValueAndStamp appends the decoded securecookie value to dst.
 // dst is allocated if nil, or grown if too small.
+// Returns the value and the time stamp truncated to seconds when the
+// cookie was generated and added to an http response with SetValue.
 func (o *Obj) GetValueAndStamp(dst []byte, r *http.Request) ([]byte, time.Time, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {
