@@ -529,6 +529,74 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	return append(dst, b[stampLen:len(b)-nPad]...), nil
 }
 
+// GetValueAndStamp appends the decoded securecookie value to dst.
+// dst is allocated if nil, or grown if too small.
+func (o *Obj) GetValueAndStamp(dst []byte, r *http.Request) ([]byte, time.Time, error) {
+	c, err := r.Cookie(o.name)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return o.decodeValueAndStamp(dst, c.Value)
+}
+
+// decodeValueAndStamp appends the encoded value val to dst.
+// dst is allocated if nil, or grown if too small.
+// Requires: len(val) >= minEncLen && len(val)%4 == 0.
+func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, error) {
+	if len(val) < minEncLen {
+		return dst, time.Time{}, errors.New("securecookie: encoded value is too short")
+	}
+	var bPtr = bufPool.Get().(*[]byte)
+	defer bufPool.Put(bPtr)
+	var bLen = sha256BlockLen + len(o.name) + len(val)
+	if cap(*bPtr) < bLen {
+		*bPtr = make([]byte, bLen+20)
+	}
+	var b = (*bPtr)[:cap(*bPtr)]
+	var endPos = copy(b, o.ipad[:])
+	endPos += copy(b[endPos:], o.name)
+	var encPos = endPos
+	b, err := decodeBase64(b[:encPos], val)
+	if err != nil {
+		return dst, time.Time{}, err
+	}
+	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
+	if version != encodingVersion {
+		return dst, time.Time{}, fmt.Errorf("securecookie: invalid encoding version %d, expected value <= %d",
+			version, encodingVersion)
+	}
+	if nPad > maxPaddingLen {
+		return dst, time.Time{}, fmt.Errorf("securecookie: invalid padding length %d, expected value <= %d",
+			nPad, maxPaddingLen)
+	}
+	var valMac = b[len(b)-hmacLen:]
+	b = b[:len(b)-hmacLen]
+	var locMac [hmacLen]byte
+	o.hmacSha256(locMac[:], b)
+	b = b[encPos:]
+	var x byte
+	for i := range locMac {
+		x |= valMac[i] ^ locMac[i]
+	}
+	if x != 0 {
+		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
+	}
+	var iv = b[1 : 1+ivLen]
+	b = b[1+ivLen:]
+	o.xorCtrAes(iv, b)
+	stamp, stampLen := decodeUint64(b)
+	if stampLen == 0 {
+		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp encoding")
+	}
+	stamp += epochOffset
+	var valStamp = time.Unix(int64(stamp), 0)
+	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
+	if time.Now().Before(valStamp) || (o.maxAge != 0 && time.Now().After(maxStamp)) {
+		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp value")
+	}
+	return append(dst, b[stampLen:len(b)-nPad]...), valStamp, nil
+}
+
 // decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
 // Returns an error if len(src)%4 != 0 or src doesn't contain a valid base64 encoding.
 // Requires src and dst don't overlap.
