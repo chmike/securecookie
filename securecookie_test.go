@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/securecookie"
 )
@@ -596,6 +597,116 @@ func TestDecodeValueErrorsC(t *testing.T) {
 	}
 }
 
+func TestDecodeValueAndStampErrorsA(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, ""); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	buf[len(buf)-1]--
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf[len(buf)-1]++
+
+	obj.maxAge -= 10000
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	obj.maxAge += 10000
+}
+
+func TestDecodeValueAndStampErrorsB(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// set an invalid paddingLen value
+	dec, err := decodeBase64(nil, string(buf))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec[0] |= 3
+	dec = dec[:len(dec)-hmacLen]
+	var hm = hmac.New(sha256.New, obj.key[:len(obj.key)/2])
+	hm.Write([]byte(obj.name))
+	hm.Write(dec)
+	dec = hm.Sum(dec)
+	buf = encodeBase64(buf[:0], dec)
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	// set an invalid stamp encoding
+	buf, err = obj.encodeValue(nil, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec, err = decodeBase64(nil, string(buf))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec = dec[:len(dec)-hmacLen]
+	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
+	for i := 1 + ivLen; i < 1+ivLen+10; i++ {
+		dec[i] |= 0x80
+	}
+	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
+	hm.Reset()
+	hm.Write([]byte(obj.name))
+	hm.Write(dec)
+	dec = hm.Sum(dec)
+	buf = encodeBase64(buf[:0], dec)
+	purgeBufPool()
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestDecodeValueAndStampErrorsC(t *testing.T) {
+	obj, err := New("test", make([]byte, KeyLen), Params{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, ""); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf, err := obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	buf[len(buf)-1]--
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+		t.Errorf("unexpected nil error")
+	}
+	buf[len(buf)-1]++
+
+	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+}
+
 func TestSetAndGetCookie(t *testing.T) {
 	p := Params{
 		Path:     "path",
@@ -645,6 +756,46 @@ func TestSetAndGetCookie(t *testing.T) {
 	err = obj.SetValue(recorder, []byte(strings.Repeat(" ", maxCookieLen)))
 	if err == nil {
 		t.Errorf("unexpected nil error")
+	}
+}
+
+func TestSetAndGetCookieWithStamp(t *testing.T) {
+	p := Params{
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	}
+	obj, err := New("test", make([]byte, KeyLen), p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder := httptest.NewRecorder()
+	inValue := []byte("some value")
+	now := time.Now().Truncate(time.Second)
+	err = obj.SetValue(recorder, inValue)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
+	outValue, stamp, err := obj.GetValueAndStamp(nil, request)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	} else if !bytes.Equal(outValue, inValue) {
+		t.Errorf("got value '%s', expected '%s'", outValue, inValue)
+	}
+	if stampDiff := stamp.Sub(now); stampDiff > time.Second || stampDiff < -time.Second {
+		t.Error("invalid stamp diff:", stampDiff)
+	}
+
+	// test retrieve non-existent cookie.
+	obj.name = "xxx"
+	outValue, _, err = obj.GetValueAndStamp(nil, request)
+	if err == nil {
+		t.Errorf("unexpected nil error")
+	} else if outValue != nil {
+		t.Errorf("unexpected non-nil value")
 	}
 }
 

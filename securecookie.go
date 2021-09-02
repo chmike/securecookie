@@ -392,6 +392,7 @@ func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 // dst is allocated if nil, or grown if too small.
 // Return dst and the error if any.
 func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
+	nowUnix := time.Now().Unix()
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
 	var bLen = sha256.BlockSize + len(o.name) + ((1+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8+5)/6
@@ -410,7 +411,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	}
 	endPos += ivLen
 	var xorPos = endPos
-	endPos += encodeUint64(b[endPos:], uint64(time.Now().Unix())-epochOffset)
+	endPos += encodeUint64(b[endPos:], uint64(nowUnix)-epochOffset)
 	endPos += copy(b[endPos:], val)
 	var padPos = endPos
 	var nPad = (endPos + hmacLen - encPos) % 3
