@@ -614,7 +614,7 @@ func TestSetAndGetCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	outValue, err := obj.GetValue(nil, request)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
@@ -667,7 +667,7 @@ func TestDeleteCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 
 	c, err := request.Cookie("test")
 	if err != nil {
@@ -688,7 +688,7 @@ func TestDeleteCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	request = &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request = &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 
 	c, err = request.Cookie("test")
 	if err != nil {
@@ -709,7 +709,7 @@ func TestDeleteCookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
-	request = &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request = &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 
 	c, err = request.Cookie("test")
 	if err != nil {
@@ -740,7 +740,7 @@ func TestChmikeValueLen(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	c, err := request.Cookie("test")
 	if err != nil {
 		t.Fatal(err)
@@ -762,7 +762,7 @@ func TestGorillaValueLen(t *testing.T) {
 	}
 	cookie.Value = encoded
 	http.SetCookie(recorder, &cookie)
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	c, err := request.Cookie("test")
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +774,6 @@ var buf1 = make([]byte, 512)
 var buf2 = make([]byte, 512)
 var val = []byte("some value")
 var obj = MustNew("test", make([]byte, KeyLen), Params{MaxAge: 3600})
-var res []byte
 var enc string
 
 func BenchmarkChmikeEncodeValue(b *testing.B) {
@@ -864,7 +863,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	}
 	out := make([]byte, len(inValue))
 	//fmt.Println("Chmike cookie:", recorder.HeaderMap["Set-Cookie"])
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		_, err := obj.GetValue(out[:0], request)
@@ -889,7 +888,7 @@ func BenchmarkGorillaGetCookie(b *testing.B) {
 	cookie.Value = encoded
 	http.SetCookie(recorder, &cookie)
 	//fmt.Println("Gorilla cookie:", recorder.HeaderMap["Set-Cookie"])
-	request := &http.Request{Header: http.Header{"Cookie": recorder.HeaderMap["Set-Cookie"]}}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		outCookie, err := request.Cookie(name)
