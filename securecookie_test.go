@@ -799,6 +799,46 @@ func TestSetAndGetCookieWithStamp(t *testing.T) {
 	}
 }
 
+func TestSetAndGetCookiesWithStamp(t *testing.T) {
+	p := Params{
+		Path:     "path",
+		Domain:   "example.com",
+		MaxAge:   3600,
+		HTTPOnly: true,
+		Secure:   true,
+	}
+	obj, err := New("test", make([]byte, KeyLen), p)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	recorder := httptest.NewRecorder()
+	inValue := []byte("some value")
+	now := time.Now().Truncate(time.Second)
+	err = obj.SetValue(recorder, inValue)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	inValue2 := []byte("other value")
+	err = obj.SetValue(recorder, inValue2)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
+	outValues := obj.GetValues(request.Cookies())
+	if exp, got := 2, len(outValues); exp != got {
+		t.Fatalf("expected %d values, got %d", exp, got)
+	}
+	if !bytes.Equal(outValues[0].Value, inValue) {
+		t.Errorf("expected %s, got %s", string(inValue), string(outValues[0].Value))
+	}
+	if !bytes.Equal(outValues[1].Value, inValue2) {
+		t.Errorf("expected %s, got %s", string(inValue2), string(outValues[1].Value))
+	}
+	if stampDiff := outValues[0].Stamp.Sub(now); stampDiff > time.Second || stampDiff < -time.Second {
+		t.Error("invalid stamp diff:", stampDiff)
+	}
+}
+
 func TestDeleteCookie(t *testing.T) {
 	purgeBufPool()
 	p := Params{

@@ -462,14 +462,38 @@ func encodeBase64(dst, src []byte) []byte {
 	return dst
 }
 
-// GetValue appends the decoded securecookie value to dst.
-// dst is allocated if nil, or grown if too small.
+// GetValue returns the value of the first cookie with a matching name.
+// The function uses the dst slice as storage if not nil and big enough.
 func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {
 		return nil, err
 	}
 	return o.decodeValue(dst, c.Value)
+}
+
+// ValueResult is a decoded value with its time stamp, or the error if any. ValueResult
+// are returned by the GetValues method.
+type ValueResult struct {
+	Value []byte
+	Stamp time.Time
+	Error error
+}
+
+// GetValues returns the values and stamp of cookies with a matching
+// name in cookies, or nil if none. GetValues should be user in place
+// of GetValue when a request may contain multiple cookies with a same
+// name. For each returned value, Error is nil and Value not nil, or
+// Error is not nil and value is nil.
+func (o *Obj) GetValues(cookies []*http.Cookie) []ValueResult {
+	var res []ValueResult
+	for _, c := range cookies {
+		if c.Name == o.name {
+			val, stamp, err := o.decodeValueAndStamp(nil, c.Value)
+			res = append(res, ValueResult{Value: val, Stamp: stamp, Error: err})
+		}
+	}
+	return res
 }
 
 // decodeValue appends the encoded value val to dst.
