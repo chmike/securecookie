@@ -961,6 +961,28 @@ func TestGorillaValueLen(t *testing.T) {
 	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
 }
 
+func TestCookieText(t *testing.T) {
+	key := MustGenerateRandomKey()
+	loginCookie, err := New("login", key, Params{
+		Path:     "/",               // cookie received only when URL starts with this path
+		Domain:   "www.example.com", // cookie received only when URL domain matches this one
+		MaxAge:   15 * 24 * 3600,    // cookie becomes invalid after 15 days
+		HTTPOnly: true,              // disallow access by remote javascript code
+		Secure:   true,              // cookie received only with HTTPS, never with HTTP
+		SameSite: Strict,            // cookie only for same site
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	var recorder = httptest.NewRecorder()
+	if err := loginCookie.SetValue(recorder, []byte{}); err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+	hdr := recorder.Header()
+	t.Error(hdr.Get("Set-Cookie"))
+
+}
+
 var buf1 = make([]byte, 512)
 var buf2 = make([]byte, 512)
 var val = []byte("some value")
