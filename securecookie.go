@@ -703,7 +703,7 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 		b = append(b, "; Domain="...)
 		b = append(b, o.domain...)
 	}
-	b = append(b, "; Expires=Jan 2 15:04:05 2006"...)
+	b = append(b, "; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"...)
 	if o.httpOnly {
 		b = append(b, "; HttpOnly"...)
 	}
