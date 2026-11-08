@@ -111,5 +111,9 @@ func main() {
 		fmt.Fprintf(w, "The value of cookie '%s' is '%s'", myCookie.Name(), html.EscapeString(string(val)))
 	})
 
+	fmt.Println("Server listening on http://localhost:8080")
+	fmt.Println("Set the cookie value: http://localhost:8080/set/someValue")
+	fmt.Println("Get the cookie value: http://localhost:8080/val")
+	fmt.Println("Stop the server with Ctrl-C")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
