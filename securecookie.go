@@ -136,7 +136,6 @@ type Params struct {
 
 // Obj is a validated cookie object.
 type Obj struct {
-	key      []byte
 	name     string
 	path     string
 	domain   string
@@ -214,7 +213,6 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	}
 	var begStr = name + "="
 	var o = &Obj{
-		key:      key,
 		name:     begStr[:len(name)],
 		path:     p.Path,
 		domain:   p.Domain,

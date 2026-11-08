@@ -144,10 +144,10 @@ func (o1 *Obj) Equal(o2 *Obj) bool {
 	if o1 == nil || o2 == nil {
 		return o1 == o2
 	}
-	return o1.name == o2.name && bytes.Equal(o1.key, o2.key) &&
+	return o1.name == o2.name &&
 		o1.path == o2.path && o1.domain == o2.domain &&
 		o1.maxAge == o2.maxAge && o1.httpOnly == o2.httpOnly &&
-		o1.secure == o2.secure
+		o1.secure == o2.secure && o1.sameSite == o2.sameSite
 }
 
 func TestMustNew(t *testing.T) {
@@ -199,22 +199,22 @@ func TestNew(t *testing.T) {
 		o    *Obj
 		fail bool
 	}{
-		{k: k, n: n, p: Params{}, o: &Obj{key: k, name: n}},
+		{k: k, n: n, p: Params{}, o: &Obj{name: n}},
 		{k: k[:len(k)-1], n: n, p: Params{}, o: nil, fail: true},
 		{k: make([]byte, KeyLen+1), n: n, p: Params{}, o: nil, fail: true},
 		{k: k, n: "", p: Params{}, o: nil, fail: true},
-		{k: k, n: n, p: Params{Path: "path"}, o: &Obj{key: k, name: n, path: "path"}},
+		{k: k, n: n, p: Params{Path: "path"}, o: &Obj{name: n, path: "path"}},
 		{k: k, n: n, p: Params{Path: ";"}, o: nil, fail: true},
-		{k: k, n: n, p: Params{Domain: "example.com"}, o: &Obj{key: k, name: n, domain: "example.com"}},
+		{k: k, n: n, p: Params{Domain: "example.com"}, o: &Obj{name: n, domain: "example.com"}},
 		{k: k, n: n, p: Params{Domain: "example..com"}, o: nil, fail: true},
-		{k: k, n: n, p: Params{MaxAge: 3600}, o: &Obj{key: k, name: n, maxAge: 3600}},
+		{k: k, n: n, p: Params{MaxAge: 3600}, o: &Obj{name: n, maxAge: 3600}},
 		{k: k, n: n, p: Params{MaxAge: -3600}, o: nil, fail: true},
-		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{key: k, name: n, httpOnly: true}},
-		{k: k, n: n, p: Params{Secure: true}, o: &Obj{key: k, name: n, secure: true}},
-		{k: kb, n: n, p: Params{Secure: true}, o: &Obj{key: kb, name: n, secure: true}, fail: true},
-		{k: k, n: n, p: Params{SameSite: None}, o: &Obj{key: k, name: n, sameSite: None}},
-		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{key: k, name: n, sameSite: Lax}},
-		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{key: k, name: n, sameSite: Strict}},
+		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{name: n, httpOnly: true}},
+		{k: k, n: n, p: Params{Secure: true}, o: &Obj{name: n, secure: true}},
+		{k: kb, n: n, p: Params{Secure: true}, o: &Obj{name: n, secure: true}, fail: true},
+		{k: k, n: n, p: Params{SameSite: None}, o: &Obj{name: n, sameSite: None}},
+		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{name: n, sameSite: Lax}},
+		{k: k, n: n, p: Params{SameSite: Strict}, o: &Obj{name: n, sameSite: Strict}},
 	}
 	for _, test := range tests {
 		obj, err := New(test.n, test.k, test.p)
@@ -567,7 +567,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	}
 	dec[0] |= 3
 	dec = dec[:len(dec)-hmacLen]
-	var hm = hmac.New(sha256.New, obj.key[:len(obj.key)/2])
+	var hm = hmac.New(sha256.New, make([]byte, KeyLen/2))
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
@@ -680,7 +680,7 @@ func TestDecodeValueAndStampErrorsB(t *testing.T) {
 	}
 	dec[0] |= 3
 	dec = dec[:len(dec)-hmacLen]
-	var hm = hmac.New(sha256.New, obj.key[:len(obj.key)/2])
+	var hm = hmac.New(sha256.New, make([]byte, KeyLen/2))
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)
 	dec = hm.Sum(dec)
