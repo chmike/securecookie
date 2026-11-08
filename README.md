@@ -10,8 +10,8 @@
 This package provides functions to encode and decode secure cookie values.
 
 A secure cookie has its value ciphered and signed with a message authentication
-code. This prevents the remote cookie owner from knowing what information is stored 
-in the cookie or modifying it. It also prevents an attacker from forging a fake 
+code. This prevents the remote cookie owner from knowing what information is stored
+in the cookie or modifying it. It also prevents an attacker from forging a fake
 cookie.
 
 This package differs from the Gorilla secure cookie in that its encoding and
@@ -65,7 +65,7 @@ var key []byte = securecookie.MustGenerateRandomKey()
 
 To mitigate the risk of an attacker getting the saved key, you might store a second
 key in another place and use the xor of both keys as secure cookie key. The attacker
-will have to get both keys to reconstruct the effective key which should be more 
+will have to get both keys to reconstruct the effective key which should be more
 difficult.
 
 ### Instantiating a cookie object
@@ -75,11 +75,11 @@ argument is invalid.
 
 ``` Go
 obj, err := securecookie.New("__Host-session", key, securecookie.Params{
-		Path:     "/",              // cookie received for all URL paths
-		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,             // disallow access by remote javascript code 
-		Secure:   true,             // cookie received only with HTTPS, never with HTTP
-		SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
+  Path:     "/",              // cookie received for all URL paths
+  MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+  HTTPOnly: true,             // disallow access by remote javascript code 
+  Secure:   true,             // cookie received only with HTTPS, never with HTTP
+  SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
 })
 if err != nil {
     // ...
@@ -104,12 +104,12 @@ method `Delete()`.
 
 ``` Go
 var obj = securecookie.MustNew("__Secure-Auth", key, securecookie.Params{
-		Path:     "/sec",           // cookie received only when URL starts with this path
-		Domain:   "example.com",    // cookie received only when URL domain matches this one
-		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,             // disallow access by remote javascript code 
-		Secure:   true,             // cookie received only with HTTPS, never with HTTP
-		SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
+  Path:     "/sec",           // cookie received only when URL starts with this path
+  Domain:   "example.com",    // cookie received only when URL domain matches this one
+  MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+  HTTPOnly: true,             // disallow access by remote javascript code 
+  Secure:   true,             // cookie received only with HTTPS, never with HTTP
+  SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
 })
 ```
 
@@ -137,16 +137,16 @@ only if all the valid values are equal.
 var val []byte
 var found bool
 for _, res := range obj.GetValues(r.Cookies()) {
-	if res.Error != nil {
-		continue // ignore invalid or expired values
-	}
-	if found && !bytes.Equal(val, res.Value) {
-		// different valid values: reject the request
-	}
-	val, found = res.Value, true
+ if res.Error != nil {
+  continue // ignore invalid or expired values
+ }
+ if found && !bytes.Equal(val, res.Value) {
+  // different valid values: reject the request
+ }
+ val, found = res.Value, true
 }
 if !found {
-	// no valid value
+ // no valid value
 }
 ```
 
@@ -178,30 +178,30 @@ Follow these steps to test the example:
 3. create a go.mod file: "go mod init example.com"
 4. get the latest version of the securecookie package: "go get github.com/chmike/securecookie@latest"
 5. run the server: "go run main.go"
-6. with your browser, request "http://localhost:8080/set/someValue" to set the secure cookie value
-7. with your browser, request "http://localhost:8080/val" to retrieve the secure cookie value
+6. with your browser, request "<http://localhost:8080/set/someValue>" to set the secure cookie value
+7. with your browser, request "<http://localhost:8080/val>" to retrieve the secure cookie value
 
 ## Benchmarking
 
 Encoding the cookie named "test" with value "some value". See benchmark functions
 are at the bottom of securecookie_test.go file. The ns/op values were obtained by running
 the benchmark 10 times and taking the minimal value. These values were obtained with
-go1.14 (27-Feb-2020) on an Ubuntu OS with an i5-7400 3GHz processor. 
+go1.27.3 (8-Nov-2026) on an a Mac Book Air M2.
 
 |                |   Chmike |  Gorilla |
 | -------------: | -------: | -------: |
-|      Value len |       84 |      112 |
-|      Set ns/op |     2393 |     6309 |
-|      Get ns/op |     1515 |     5199 |
-|       Set B/op |      350 |     2994 |
-|       Get B/op |      192 |     2720 |
-|  Set allocs/op |        3 |       35 |
-|  Get allocs/op |        2 |       38 |
+|      Value len |       88 |      112 |
+|      Set ns/op |      745 |     1759 |
+|      Get ns/op |      503 |     1385 |
+|       Set B/op |      344 |     2902 |
+|       Get B/op |      208 |     2568 |
+|  Set allocs/op |        3 |       33 |
+|  Get allocs/op |        2 |       35 |
 
-The secure cookie value encoding and decoding functions of this package need 0 
-heap allocations. 
+The secure cookie value encoding and decoding functions of this package need 0
+heap allocations.
 
-The benchmarks were obtained with release v0.4. Subsequent release may alter the benchmark results.
+The benchmarks were obtained with release v1.4.0. Subsequent release may alter the benchmark results.
 
 ## Qualitative comparison
 
@@ -239,29 +239,29 @@ Feedback and contributions are welcome.
 
     [tag][nonce][stamp][value][padding]
 
-  - The tag is 1 byte. The 6 most significant bits encode the version number
+- The tag is 1 byte. The 6 most significant bits encode the version number
     of the encoding (currently 0). The 2 less significant bits encode the number
     of padding bytes (0, 1 or 2). 3 is an invalid padding length. The number is
     picked so that the total length including the MAC is a multiple of 3. This
     simplifies base64 encoding by avoiding its padding.
-  - The nonce is 16 bytes long (AES block length) and contains cryptographically
+- The nonce is 16 bytes long (AES block length) and contains cryptographically
     secure pseudorandom bytes.
-  - The stamp is the unix time subtracted by an epochOffset value (1505230500),
+- The stamp is the unix time subtracted by an epochOffset value (1505230500),
     and encoded using the [LEB128 encoding](https://en.wikipedia.org/wiki/LEB128).
-  - The value is a copy of the user provided value to secure.
-  - The padding bytes are cryptographically secure pseudorandom bytes. There may
+- The value is a copy of the user provided value to secure.
+- The padding bytes are cryptographically secure pseudorandom bytes. There may
     be 0 to 2 padding bytes. The number is picked so that the total length
     including the MAC is a multiple of 3. This simplifies base64 encoding by
     avoiding its padding.
 
-2. The stamp, value and padding bytes are ciphered using CTR-AES with the 16 last
+1. The stamp, value and padding bytes are ciphered using CTR-AES with the 16 last
    bytes of the key as ciphering key. The nonce is used as iv and counter
    initialization value. The tag and nonce are left unciphered.
 
-3. An HMAC-SHA-256 is computed over (1) the cookie name and (2) the bytes sequence
+2. An HMAC-SHA-256 is computed over (1) the cookie name and (2) the bytes sequence
    obtained after step 2. The 32 byte long MAC is appended after the padding.
 
-4. The whole byte sequence, from the tag to the last byte of the MAC is encoded in
+3. The whole byte sequence, from the tag to the last byte of the MAC is encoded in
    [Base64 using the URL encoding](https://tools.ietf.org/html/rfc4648#section-5).
    There is no padding since the byte length is a multiple of 3 bytes.
 
