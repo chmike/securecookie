@@ -35,6 +35,7 @@ If you enjoy the code and want to thank me 🙏, you can [buy me a coffee](https
 - [Benchmarking](#benchmarking)
 - [Qualitative comparison](#qualitative-comparison)
 - [Value encoding](#value-encoding)
+- [Security recommendations](#security-recommendations)
 - [Usage advise](#usage-advise)
 
 ## Installation
@@ -73,38 +74,43 @@ A secure cookie is instantiated with the `New` function. It returns an error if 
 argument is invalid.
 
 ``` Go
-obj, err := securecookie.New("session", key, securecookie.Params{
-		Path:     "/sec",           // cookie received only when URL starts with this path
-		Domain:   "example.com",    // cookie received only when URL domain matches this one
+obj, err := securecookie.New("__Host-session", key, securecookie.Params{
+		Path:     "/",              // cookie received for all URL paths
 		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,             // disallow access by remote javascript code 
 		Secure:   true,             // cookie received only with HTTPS, never with HTTP
-		SameSite: securecookie.Lax, // cookie received with same or sub-domain names
+		SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
 })
 if err != nil {
     // ...
 }
 ```
 
+The `__Host-` prefix of the cookie name ensures that only this host can set the
+cookie. It requires `Secure`, `Path` set to `/` and no `Domain`. Use the prefix
+`__Secure-` when the cookie must be shared with subdomains, which only requires
+`Secure`. `New` returns an error when these requirements are not satisfied. See
+[Security recommendations](#security-recommendations).
+
 It is also possible to instantiate a secure cookie object without returning an
 error and panic if an argument is invalid. To do this, use
-`securecookie.MustNew()`. In the following example, `session` is the cookie name
+`securecookie.MustNew()`. In the following example, `__Secure-Auth` is the cookie name
 and the Path is `/sec`. A secured value may be stored in the remote browser by
 calling the `SetValue()` method. After that, every subsequent request from that
 browser with a URL starting with `/sec` will have the cookie sent along. Calling
-the method `GetValue()` will extract the secure value from the request. A
+the method `GetValues()` will extract the secure values from the request. A
 request to delete the cookie may be sent to the remote browser by calling the
 method `Delete()`.
 
 ``` Go
-var obj = securecookie.MustNew("Auth", key, securecookie.Params{
+var obj = securecookie.MustNew("__Secure-Auth", key, securecookie.Params{
 		Path:     "/sec",           // cookie received only when URL starts with this path
 		Domain:   "example.com",    // cookie received only when URL domain matches this one
 		MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
 		HTTPOnly: true,             // disallow access by remote javascript code 
 		Secure:   true,             // cookie received only with HTTPS, never with HTTP
-		SameSite: securecookie.Lax, // cookie received with same or sub-domain names
-}
+		SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
+})
 ```
 
 Remember that the key should not be stored in the source code or in a repository.
@@ -121,18 +127,33 @@ if err := obj.SetValue(w, val); err != nil {
 
 ### Decoding a secure cookie value
 
-The value is appended to the given buffer. If buf is `nil` a new buffer
-(`[]byte`) is allocated. If buf is too small it is grown.
+A request may contain several cookies with the same name, for instance when
+another host has set a cookie with the same name (cookie tossing). The method
+`GetValues()` decodes all of them. The following example accepts the request
+only if all the valid values are equal.
 
 ``` Go
 // with r as the *http.Request
-val, err := obj.GetValue(buf, r) 
-if err != nil {
-  // ...
+var val []byte
+var found bool
+for _, res := range obj.GetValues(r.Cookies()) {
+	if res.Error != nil {
+		continue // ignore invalid or expired values
+	}
+	if found && !bytes.Equal(val, res.Value) {
+		// different valid values: reject the request
+	}
+	val, found = res.Value, true
+}
+if !found {
+	// no valid value
 }
 ```
 
-The returned value is of type []byte.
+Each result also holds the time stamp of the value in its `Stamp` field.
+
+The methods `GetValue()` and `GetValueAndStamp()` are deprecated because they
+only decode the first cookie with a matching name.
 
 ### Deleting a cookie
 
@@ -148,22 +169,22 @@ effectively delete the cookie. Evil users will try anything to break your site.
 
 ### Complete example
 
-An complete example is provided [here](example/main.go).
+A complete example is provided [here](example/main.go).
 
 Follow these steps to test the example:
 
 1. create a directory in /tmp and set it as the working directory: "mkdir /tmp/sctest; cd /tmp/sctest"
 2. create a file named `main.go` and copy the example code referenced above into it
 3. create a go.mod file: "go mod init example.com"
-4. get the latest version of the securecookie packaqe: "go get github.com/chmike/securecookie@v1.2.0"
+4. get the latest version of the securecookie package: "go get github.com/chmike/securecookie@latest"
 5. run the server: "go run main.go"
 6. with your browser, request "http://localhost:8080/set/someValue" to set the secure cookie value
-7. with your browser, request "http://localhost:8080/val" to retriev the secure cookie value
+7. with your browser, request "http://localhost:8080/val" to retrieve the secure cookie value
 
 ## Benchmarking
 
 Encoding the cookie named "test" with value "some value". See benchmark functions
-are at the bottom of cookie_test.go file. The ns/op values were obtained by running
+are at the bottom of securecookie_test.go file. The ns/op values were obtained by running
 the benchmark 10 times and taking the minimal value. These values were obtained with
 go1.14 (27-Feb-2020) on an Ubuntu OS with an i5-7400 3GHz processor. 
 
@@ -246,6 +267,24 @@ Feedback and contributions are welcome.
 
 The tag which provides an encoding version allows completely changing the encoding
 while preserving backwards compatibility if required.
+
+## Security recommendations
+
+- Use the cookie name prefix `__Host-` for authentication and session cookies.
+  User agents only accept such a cookie when it is set by the host itself, with
+  `Secure`, `Path` set to `/` and no `Domain`. A sibling subdomain or a network
+  attacker can then not set a cookie with the same name (cookie tossing). Use
+  the prefix `__Secure-` when the cookie must be shared with subdomains.
+- An attacker can't forge a valid value, but he may set in the victim's browser
+  a valid value obtained from his own session. The victim is then logged in the
+  attacker's account without knowing it. Use `GetValues()` and reject requests
+  with different valid values.
+- With `MaxAge` set to 0, the cookie is a session cookie for the browser, but the
+  value has no expiration on the server side: a copied value is accepted
+  forever. Use a `MaxAge` greater than 0 for authentication and session cookies.
+- Keep the key secret. Anyone knowing the key can read and forge values.
+- The domain name must be a valid host name. IP addresses and domain names with a
+  leading period are rejected.
 
 ## Contributors
 

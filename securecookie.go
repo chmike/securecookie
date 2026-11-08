@@ -12,24 +12,21 @@ What makes this secure cookie package different is that it is fast
 and decoding needs no heap allocations.
 
 The intended use is to instantiate all secure cookie objects of
-your web site at program start up. In the following example "session"
-is the cookie name. The key is a byte sequence generated with the
-GenerateRandomKey() function. The same key must be used to retrieve
-the value.
+your web site at program start up. In the following example
+"__Host-session" is the cookie name. The key is a byte sequence
+generated with the GenerateRandomKey() function. The same key must
+be used to retrieve the value.
 
-	obj, err := securecookie.New("session", key, securecookie.Params{
-		Path:     "/sec",        // cookie received only when URL
-		                         // starts with this path.
-		Domain:   "example.com", // cookie received only when URL
-		                         // domain matches this one.
-		MaxAge:   3600,          // cookie becomes invalid 3600
-		                         // seconds after it is set.
-		HTTPOnly: true,          // disallow access by remote
-		                         // javascript code.
-		Secure:   true,          // cookie received only with HTTPS,
-		                         // never with HTTP.
-		SameSite: securecookie.Strict, // cookie returned only to the
-		                               // site that set it.
+	obj, err := securecookie.New("__Host-session", key, securecookie.Params{
+		Path:     "/",                // cookie received for all URL paths
+		MaxAge:   3600,               // cookie becomes invalid 3600
+		                              // seconds after it is set.
+		HTTPOnly: true,               // disallow access by remote
+		                              // javascript code.
+		Secure:   true,               // cookie received only with HTTPS,
+		                              // never with HTTP.
+		SameSite: securecookie.Lax,   // cookie not sent with most
+		                              // cross-site requests.
 	})
 	if err != nil {
 		// ...
@@ -38,16 +35,16 @@ the value.
 A securecookie can also be instantiated as a global variable with the
 MustNew function. The function will panic if an error occurs.
 
-	var obj = securecookie.MustNew("session", key, securecookie.Params{
-		Path:     "/sec",
-		Domain:   "example.com",
+	var obj = securecookie.MustNew("__Host-session", key, securecookie.Params{
+		Path:     "/",
 		MaxAge:   3600,
 		HTTPOnly: true,
 		Secure:   true,
+		SameSite: securecookie.Lax,
 	})
 
 A securecookie object is immutable. Its methods can be called from
-different goroutines. The Delete(), SetValue() and GetValue() methods
+different goroutines. The Delete(), SetValue() and GetValues() methods
 are independent.
 
 To set a cookie value, call the SetValue() method with a http.ResponseWriter
@@ -58,13 +55,24 @@ w, and a value val as arguments.
 		// ...
 	}
 
-A securecookie value is retrieved from an http.Request with the GetValue()
-method and is appended to the given buffer, extending it if required. If
-buf is nil, a new buffer is allocated.
+A request may contain several cookies with the same name. Securecookie
+values are retrieved from an http.Request with the GetValues() method.
+The following example accepts the request only if all the valid values
+are equal.
 
-	val, err := obj.GetValue(buf, r)
-	if err != nil {
-		// ...
+	var val []byte
+	var found bool
+	for _, res := range obj.GetValues(r.Cookies()) {
+		if res.Error != nil {
+			continue // ignore invalid or expired values
+		}
+		if found && !bytes.Equal(val, res.Value) {
+			// different valid values: reject the request
+		}
+		val, found = res.Value, true
+	}
+	if !found {
+		// no valid value
 	}
 
 A securecookie is deleted by calling the Delete() method with the
@@ -73,6 +81,28 @@ http.ResponseWriter w as argument.
 	if err := obj.Delete(w); err != nil {
 		// ...
 	}
+
+# Security recommendations
+
+Use the cookie name prefix "__Host-" for authentication or session
+cookies. User agents only accept such a cookie when it is set with
+Secure, without Domain, and with Path "/" by the host itself. Another
+host, like a sibling subdomain, or a network attacker, can then not
+set a cookie with the same name in the user agent (cookie tossing).
+Use the prefix "__Secure-" when the cookie must be shared with
+subdomains. New returns an error when the parameters don't satisfy the
+prefix requirements.
+
+An attacker can't forge a valid value, but may set in the user agent
+a valid value obtained from its own session. Use GetValues and reject
+requests with different valid values, as shown above.
+
+With MaxAge 0, the cookie has no Max-Age attribute and is a session
+cookie for the user agent. But the value has no expiration on the
+server side: a copied value is accepted forever. Use a MaxAge greater
+than 0 for authentication or session cookies.
+
+Keep the key secret. Anyone knowing the key can read and forge values.
 */
 package securecookie
 
@@ -129,7 +159,7 @@ func MustGenerateRandomKey() []byte {
 type Params struct {
 	Path     string // Optional : URL path to which the cookie will be returned
 	Domain   string // Optional : domain to which the cookie will be returned
-	MaxAge   int    // Optional : time offset in seconds from now, must be >= 0
+	MaxAge   int    // Optional : time offset in seconds from now, must be >= 0, 0 means no expiration on the server side
 	HTTPOnly bool   // Optional : disallow access by remote javascript code
 	Secure   bool   // Optional : cookie is only sent through HTTPS connections
 	SameSite int    // Optional : (None, Lax, or Strict) restrict cookie return (None requires Secure)
@@ -303,6 +333,7 @@ func checkPath(path string) error {
 // checkDomain returns an error if the domain name is not valid.
 // See https://tools.ietf.org/html/rfc1034#section-3.5 and
 // https://tools.ietf.org/html/rfc1123#section-2.
+// IP addresses and domain names with a leading period are rejected.
 func checkDomain(name string) error {
 	switch {
 	case len(name) == 0:
@@ -509,6 +540,10 @@ func encodeBase64(dst, src []byte) []byte {
 
 // GetValue returns the value of the first cookie with a matching name.
 // The function uses the dst slice as storage if not nil and big enough.
+//
+// Deprecated: a request may contain several cookies with the same name,
+// for instance one set by another host (cookie tossing), and GetValue
+// only decodes the first one. Use GetValues instead.
 func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {
@@ -526,10 +561,11 @@ type ValueResult struct {
 }
 
 // GetValues returns the values and stamp of cookies with a matching
-// name in cookies, or nil if none. GetValues should be used in place
-// of GetValue when a request may contain multiple cookies with a same
-// name. For each returned value, Error is nil and Value not nil, or
-// Error is not nil and value is nil.
+// name in cookies, or nil if none. A request may contain multiple
+// cookies with the same name, and cookies is usually r.Cookies().
+// For each returned value, Error is nil and Value holds the decoded
+// value (nil when the value is empty), or Error is not nil and Value
+// is nil.
 func (o *Obj) GetValues(cookies []*http.Cookie) []ValueResult {
 	var res []ValueResult
 	for _, c := range cookies {
@@ -602,6 +638,10 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 // dst is allocated if nil, or grown if too small.
 // Returns the value and the time stamp truncated to seconds when the
 // cookie was generated and added to an http response with SetValue.
+//
+// Deprecated: a request may contain several cookies with the same name,
+// for instance one set by another host (cookie tossing), and
+// GetValueAndStamp only decodes the first one. Use GetValues instead.
 func (o *Obj) GetValueAndStamp(dst []byte, r *http.Request) ([]byte, time.Time, error) {
 	c, err := r.Cookie(o.name)
 	if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"html"
 	"log"
@@ -55,7 +56,7 @@ func loadKey(name string) ([]byte, error) {
 		return nil, err
 	}
 	if n != securecookie.KeyLen {
-		return nil, fmt.Errorf("key lenght is %d, it should be %d", n, securecookie.KeyLen)
+		return nil, fmt.Errorf("key length is %d, it should be %d", n, securecookie.KeyLen)
 	}
 	return key, nil
 }
@@ -66,6 +67,8 @@ func main() {
 		log.Fatal("load key:", err)
 	}
 
+	// In production, use a name with the "__Host-" prefix, Path "/", no
+	// Domain and Secure true. This example uses HTTP for testing purpose.
 	myCookie := securecookie.MustNew("myCookie", key, securecookie.Params{
 		Path:     "/val",      // cookie to be sent back only when URL starts with this path
 		Domain:   "localhost", // cookie to be sent back only when URL domain matches this one
@@ -87,9 +90,22 @@ func main() {
 	})
 
 	http.HandleFunc("/val", func(w http.ResponseWriter, r *http.Request) {
-		val, err := myCookie.GetValue(nil, r)
-		if err != nil {
-			fmt.Fprintf(w, "unexpected error: %s", html.EscapeString(err.Error()))
+		// A request may contain several cookies with the same name.
+		// Accept the request only if all valid values are equal.
+		var val []byte
+		var found bool
+		for _, res := range myCookie.GetValues(r.Cookies()) {
+			if res.Error != nil {
+				continue // ignore invalid or expired values
+			}
+			if found && !bytes.Equal(val, res.Value) {
+				fmt.Fprint(w, "error: multiple different cookie values")
+				return
+			}
+			val, found = res.Value, true
+		}
+		if !found {
+			fmt.Fprintf(w, "error: no valid value for cookie '%s'", myCookie.Name())
 			return
 		}
 		fmt.Fprintf(w, "The value of cookie '%s' is '%s'", myCookie.Name(), html.EscapeString(string(val)))
