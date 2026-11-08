@@ -82,6 +82,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -163,12 +164,12 @@ func MustNew(name string, key []byte, p Params) *Obj {
 // New instantiates a validated cookie object with the given cookie name, key
 // and parameters.
 func New(name string, key []byte, p Params) (*Obj, error) {
+	if len(key) != KeyLen {
+		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
+	}
 	block, err := aes.NewCipher(key[len(key)/2:])
 	if err != nil {
 		return nil, err
-	}
-	if len(key) != KeyLen {
-		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
 	}
 	if err := checkName(name); err != nil {
 		return nil, err
@@ -503,6 +504,9 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	if len(val) < minEncLen {
 		return dst, errors.New("securecookie: encoded value is too short")
 	}
+	if len(val) > maxCookieLen {
+		return dst, errTooLong
+	}
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
 	var bLen = sha256BlockLen + len(o.name) + len(val)
@@ -531,11 +535,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	var locMac [hmacLen]byte
 	o.hmacSha256(locMac[:], b)
 	b = b[encPos:]
-	var x byte
-	for i := range locMac {
-		x |= valMac[i] ^ locMac[i]
-	}
-	if x != 0 {
+	if subtle.ConstantTimeCompare(valMac, locMac[:]) != 1 {
 		return nil, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
 	}
 	var iv = b[1 : 1+ivLen]
@@ -573,6 +573,9 @@ func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, er
 	if len(val) < minEncLen {
 		return dst, time.Time{}, errors.New("securecookie: encoded value is too short")
 	}
+	if len(val) > maxCookieLen {
+		return dst, time.Time{}, errTooLong
+	}
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
 	var bLen = sha256BlockLen + len(o.name) + len(val)
@@ -601,11 +604,7 @@ func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, er
 	var locMac [hmacLen]byte
 	o.hmacSha256(locMac[:], b)
 	b = b[encPos:]
-	var x byte
-	for i := range locMac {
-		x |= valMac[i] ^ locMac[i]
-	}
-	if x != 0 {
+	if subtle.ConstantTimeCompare(valMac, locMac[:]) != 1 {
 		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
 	}
 	var iv = b[1 : 1+ivLen]
@@ -809,6 +808,11 @@ const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
 
 // maxCookieLen is the maximum length of a cookie.
 const maxCookieLen = 4000
+
+// errTooLong is returned when an encoded value to decode is longer than
+// maxCookieLen. Such a value can't have been produced by SetValue, and is
+// rejected before any processing.
+var errTooLong = fmt.Errorf("securecookie: encoded value is too long, can't exceed %d", maxCookieLen)
 
 // forceError is used for 100% test coverage.
 var forceError int

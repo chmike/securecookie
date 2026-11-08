@@ -158,6 +158,22 @@ func TestMustNew(t *testing.T) {
 	MustNew("test", nil, Params{})
 }
 
+func TestNewKeyLength(t *testing.T) {
+	for _, n := range []int{0, 16, 24, KeyLen - 1, KeyLen + 1, 48, 64} {
+		_, err := New("test", make([]byte, n), Params{})
+		if err == nil {
+			t.Errorf("got nil error, expected key length error for key length %d", n)
+			continue
+		}
+		if !strings.Contains(err.Error(), "key length") {
+			t.Errorf("got error '%s', expected key length error for key length %d", err, n)
+		}
+	}
+	if _, err := New("test", nil, Params{}); err == nil || !strings.Contains(err.Error(), "key length") {
+		t.Errorf("got error '%v', expected key length error for nil key", err)
+	}
+}
+
 func TestNew(t *testing.T) {
 	k := make([]byte, KeyLen)
 	kb := make([]byte, KeyLen*3)
@@ -501,6 +517,9 @@ func TestDecodeValueErrorsA(t *testing.T) {
 	if _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
+	if _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
+	}
 	buf, err := obj.encodeValue(nil, []byte{})
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -611,6 +630,9 @@ func TestDecodeValueAndStampErrorsA(t *testing.T) {
 	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
+	if _, _, err := obj.decodeValueAndStamp(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
+	}
 	buf, err := obj.encodeValue(nil, []byte{})
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -691,6 +713,9 @@ func TestDecodeValueAndStampErrorsC(t *testing.T) {
 	}
 	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
+	}
+	if _, _, err := obj.decodeValueAndStamp(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
 	}
 	buf, err := obj.encodeValue(nil, []byte{})
 	if err != nil {
