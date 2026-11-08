@@ -62,6 +62,47 @@ func TestCheckName(t *testing.T) {
 	}
 }
 
+func TestCheckPrefix(t *testing.T) {
+	tests := []struct {
+		n    string
+		p    Params
+		fail bool
+	}{
+		{n: "session", p: Params{}},
+		{n: "_Host-session", p: Params{}},
+		{n: "__Host", p: Params{}},
+		{n: "__Secure", p: Params{}},
+		{n: "__Secure-session", p: Params{Secure: true}},
+		{n: "__Secure-session", p: Params{Secure: true, Domain: "example.com", Path: "/sec"}},
+		{n: "__secure-session", p: Params{Secure: true}},
+		{n: "__Secure-session", p: Params{}, fail: true},
+		{n: "__SECURE-session", p: Params{Domain: "example.com"}, fail: true},
+		{n: "__Host-session", p: Params{Secure: true, Path: "/"}},
+		{n: "__host-session", p: Params{Secure: true, Path: "/"}},
+		{n: "__Host-session", p: Params{Path: "/"}, fail: true},
+		{n: "__Host-session", p: Params{Secure: true}, fail: true},
+		{n: "__Host-session", p: Params{Secure: true, Path: "/sec"}, fail: true},
+		{n: "__Host-session", p: Params{Secure: true, Path: "/", Domain: "example.com"}, fail: true},
+		{n: "__HOST-session", p: Params{Secure: true, Path: "/", Domain: "example.com"}, fail: true},
+	}
+	for _, test := range tests {
+		err := checkPrefix(test.n, test.p)
+		if err != nil && !test.fail {
+			t.Errorf("got error '%s', expected no error for %+v", err, test)
+		}
+		if err == nil && test.fail {
+			t.Errorf("got nil error, expected to fail for %+v", test)
+		}
+	}
+	// check that New calls checkPrefix
+	if _, err := New("__Host-session", make([]byte, KeyLen), Params{Secure: true}); err == nil {
+		t.Errorf("got nil error, expected New to fail on invalid __Host- prefix parameters")
+	}
+	if _, err := New("__Host-session", make([]byte, KeyLen), Params{Secure: true, Path: "/"}); err != nil {
+		t.Errorf("got error '%s', expected New to accept valid __Host- prefix parameters", err)
+	}
+}
+
 func TestCheckPath(t *testing.T) {
 	if err := checkPath("toto"); err != nil {
 		t.Errorf("unexpected error: %s", err)

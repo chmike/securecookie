@@ -87,6 +87,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -162,6 +163,12 @@ func MustNew(name string, key []byte, p Params) *Obj {
 
 // New instantiates a validated cookie object with the given cookie name, key
 // and parameters.
+//
+// A cookie name starting with the prefix "__Secure-" requires Secure to be
+// true. A cookie name starting with the prefix "__Host-" requires Secure to be
+// true, Domain to be empty and Path to be "/". User agents enforce these
+// rules and ignore cookies that don't satisfy them. The prefixes are matched
+// case-insensitively.
 func New(name string, key []byte, p Params) (*Obj, error) {
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
@@ -177,6 +184,9 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		return nil, err
 	}
 	if err := checkDomain(p.Domain); err != nil {
+		return nil, err
+	}
+	if err := checkPrefix(name, p); err != nil {
 		return nil, err
 	}
 	if p.MaxAge < 0 {
@@ -258,6 +268,28 @@ func checkName(name string) error {
 		return fmt.Errorf("securecookie: name has %s", err)
 	}
 	return nil
+}
+
+// checkPrefix returns an error if the cookie name starts with the prefix
+// "__Secure-" or "__Host-" and the parameters don't satisfy the prefix
+// requirements. Prefixes are matched case-insensitively.
+func checkPrefix(name string, p Params) error {
+	switch {
+	case hasPrefixFold(name, "__Host-"):
+		if !p.Secure || p.Domain != "" || p.Path != "/" {
+			return errors.New(`securecookie: cookie name prefix __Host- requires Secure, an empty Domain and Path "/"`)
+		}
+	case hasPrefixFold(name, "__Secure-"):
+		if !p.Secure {
+			return errors.New("securecookie: cookie name prefix __Secure- requires Secure")
+		}
+	}
+	return nil
+}
+
+// hasPrefixFold returns true if s starts with prefix, ignoring case.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // checkPath returns an error if the cookie path is invalid.
