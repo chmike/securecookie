@@ -167,7 +167,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
 	}
-	block, err := aes.NewCipher(key[len(key)/2:])
+	block, err := aesCipher(key[len(key)/2:])
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +235,20 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 		o.opad[i] ^= key[i]
 	}
 	return o, nil
+}
+
+// aesCipher returns the AES cipher block for key, or the wrapped error
+// returned by aes.NewCipher. When forceAesError is true, the key is
+// truncated so that aes.NewCipher returns an error.
+func aesCipher(key []byte) (cipher.Block, error) {
+	if forceAesError {
+		key = key[:1]
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("securecookie: %w", err)
+	}
+	return block, nil
 }
 
 // checkName returns an error if the cookie name is invalid.
@@ -816,6 +830,10 @@ var errTooLong = fmt.Errorf("securecookie: encoded value is too long, can't exce
 
 // forceError is used for 100% test coverage.
 var forceError int
+
+// forceAesError forces aesCipher to return an error. It is used for 100%
+// test coverage.
+var forceAesError bool
 
 // pool of buffers used for value encoding and decoding.
 var bufPool = sync.Pool{New: func() interface{} { var b []byte; return &b }}

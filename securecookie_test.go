@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -171,6 +172,19 @@ func TestNewKeyLength(t *testing.T) {
 	}
 	if _, err := New("test", nil, Params{}); err == nil || !strings.Contains(err.Error(), "key length") {
 		t.Errorf("got error '%v', expected key length error for nil key", err)
+	}
+}
+
+func TestNewAesError(t *testing.T) {
+	forceAesError = true
+	defer func() { forceAesError = false }()
+	_, err := New("test", make([]byte, KeyLen), Params{})
+	if err == nil {
+		t.Fatal("unexpected nil error")
+	}
+	var keyErr aes.KeySizeError
+	if !errors.As(err, &keyErr) {
+		t.Errorf("got error '%s', expected wrapped aes.KeySizeError", err)
 	}
 }
 
