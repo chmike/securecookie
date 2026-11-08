@@ -978,9 +978,12 @@ func TestCookieText(t *testing.T) {
 	if err := loginCookie.SetValue(recorder, []byte{}); err != nil {
 		t.Fatal("unexpected error:", err)
 	}
-	hdr := recorder.Header()
-	t.Error(hdr.Get("Set-Cookie"))
-
+	hdr := recorder.Header().Get("Set-Cookie")
+	const wantPrefix = "login="
+	const wantSuffix = "; Path=/; Domain=www.example.com; Max-Age=1296000; HttpOnly; Secure; SameSite=Strict"
+	if !strings.HasPrefix(hdr, wantPrefix) || !strings.HasSuffix(hdr, wantSuffix) {
+		t.Errorf("got Set-Cookie %q, expected prefix %q and suffix %q", hdr, wantPrefix, wantSuffix)
+	}
 }
 
 var buf1 = make([]byte, 512)

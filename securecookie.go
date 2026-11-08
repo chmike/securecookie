@@ -27,14 +27,15 @@ the value.
 		HTTPOnly: true,          // disallow access by remote
 		                         // javascript code.
 		Secure:   true,          // cookie received only with HTTPS,
-								 // never with HTTP.
-	    SameSite: securecookie.Strict, // cookie returned only
+		                         // never with HTTP.
+		SameSite: securecookie.Strict, // cookie returned only to the
+		                               // site that set it.
 	})
 	if err != nil {
 		// ...
 	}
 
-An securecookie can also be instantiated as a global variable with the
+A securecookie can also be instantiated as a global variable with the
 MustNew function. The function will panic if an error occurs.
 
 	var obj = securecookie.MustNew("session", key, securecookie.Params{
@@ -45,16 +46,15 @@ MustNew function. The function will panic if an error occurs.
 		Secure:   true,
 	})
 
-
-A securecookie object is immutable. It's methods can be called from
+A securecookie object is immutable. Its methods can be called from
 different goroutines. The Delete(), SetValue() and GetValue() methods
 are independent.
 
 To set a cookie value, call the SetValue() method with a http.ResponseWriter
 w, and a value val as arguments.
 
-    var val = []byte("some value")
-    if err := obj.SetValue(w, val); err != nil {
+	var val = []byte("some value")
+	if err := obj.SetValue(w, val); err != nil {
 		// ...
 	}
 
@@ -62,7 +62,7 @@ A securecookie value is retrieved from an http.Request with the GetValue()
 method and is appended to the given buffer, extending it if required. If
 buf is nil, a new buffer is allocated.
 
-    val, err := obj.GetValue(buf, r)
+	val, err := obj.GetValue(buf, r)
 	if err != nil {
 		// ...
 	}
@@ -70,7 +70,7 @@ buf is nil, a new buffer is allocated.
 A securecookie is deleted by calling the Delete() method with the
 http.ResponseWriter w as argument.
 
-    if err := obj.Delete(r); err != nil {
+	if err := obj.Delete(w); err != nil {
 		// ...
 	}
 */
@@ -207,7 +207,7 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 			buf.WriteString("; SameSite=None")
 		}
 	case Lax:
-		buf.WriteString("; SameSite=lax")
+		buf.WriteString("; SameSite=Lax")
 	case Strict:
 		buf.WriteString("; SameSite=Strict")
 	}
@@ -358,7 +358,7 @@ func (o *Obj) HTTPOnly() bool {
 	return o.httpOnly
 }
 
-// Secure returns the securecookie HTTPOnly field value.
+// Secure returns the securecookie Secure field value.
 func (o *Obj) Secure() bool {
 	return o.secure
 }
@@ -439,7 +439,7 @@ func encodeUint64(b []byte, v uint64) int {
 	return n + 1
 }
 
-// encodeBase64 appends the base64 encoding of src to dst. Grow dst if needed.
+// encodeBase64 appends the base64 encoding of src to dst. Grow dst if needed.
 // Requires that length of src is a multiple of three, and that src and dst
 // don't overlap.
 func encodeBase64(dst, src []byte) []byte {
@@ -481,7 +481,7 @@ type ValueResult struct {
 }
 
 // GetValues returns the values and stamp of cookies with a matching
-// name in cookies, or nil if none. GetValues should be user in place
+// name in cookies, or nil if none. GetValues should be used in place
 // of GetValue when a request may contain multiple cookies with a same
 // name. For each returned value, Error is nil and Value not nil, or
 // Error is not nil and value is nil.
@@ -496,7 +496,7 @@ func (o *Obj) GetValues(cookies []*http.Cookie) []ValueResult {
 	return res
 }
 
-// decodeValue appends the encoded value val to dst.
+// decodeValue appends the decoded value val to dst.
 // dst is allocated if nil, or grown if too small.
 // Requires: len(val) >= minEncLen && len(val)%4 == 0.
 func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
@@ -519,7 +519,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
 	}
 	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
 	if version != encodingVersion {
-		return dst, fmt.Errorf("securecookie: invalid encoding version %d, expected value <= %d",
+		return dst, fmt.Errorf("securecookie: invalid encoding version %d, expected %d",
 			version, encodingVersion)
 	}
 	if nPad > maxPaddingLen {
@@ -566,7 +566,7 @@ func (o *Obj) GetValueAndStamp(dst []byte, r *http.Request) ([]byte, time.Time, 
 	return o.decodeValueAndStamp(dst, c.Value)
 }
 
-// decodeValueAndStamp appends the encoded value val to dst.
+// decodeValueAndStamp appends the decoded value val to dst.
 // dst is allocated if nil, or grown if too small.
 // Requires: len(val) >= minEncLen && len(val)%4 == 0.
 func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, error) {
@@ -589,7 +589,7 @@ func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, er
 	}
 	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
 	if version != encodingVersion {
-		return dst, time.Time{}, fmt.Errorf("securecookie: invalid encoding version %d, expected value <= %d",
+		return dst, time.Time{}, fmt.Errorf("securecookie: invalid encoding version %d, expected %d",
 			version, encodingVersion)
 	}
 	if nPad > maxPaddingLen {
@@ -624,7 +624,7 @@ func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, er
 	return append(dst, b[stampLen:len(b)-nPad]...), valStamp, nil
 }
 
-// decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
+// decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
 // Returns an error if len(src)%4 != 0 or src doesn't contain a valid base64 encoding.
 // Requires src and dst don't overlap.
 func decodeBase64(dst []byte, src string) ([]byte, error) {
@@ -647,7 +647,7 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	}
 	if len(src)%4 != 0 {
-		return dst, fmt.Errorf("securecookie: invalid encoded cookie length %d, must be multiple of 4", len(src)%4)
+		return dst, fmt.Errorf("securecookie: invalid encoded cookie length %d, must be multiple of 4", len(src))
 	}
 	var dstLen = len(dst) + len(src)*3/4
 	if cap(dst) < dstLen {
@@ -669,7 +669,7 @@ func decodeBase64(dst []byte, src string) ([]byte, error) {
 	return dst, nil
 }
 
-// decodeUint64 encodes v in b and returns the number of
+// decodeUint64 decodes a value from b and returns it with the number of
 // bytes read. If that value is 0, no value was read.
 func decodeUint64(b []byte) (uint64, int) {
 	var v uint64
@@ -687,7 +687,7 @@ func decodeUint64(b []byte) (uint64, int) {
 	return 0, 0
 }
 
-// Delete adds a request to the delete the securecookie to the server
+// Delete adds a request to delete the securecookie to the server
 // response w. The user agent may ignore the request.
 func (o *Obj) Delete(w http.ResponseWriter) error {
 	bPtr := bufPool.Get().(*[]byte)
@@ -786,10 +786,10 @@ const epochOffset uint64 = 1505230500
 // hmacLen is the byte length of the hmac(SHA256) digest.
 const hmacLen = sha256.Size
 
-// sha256BlockLen is the size of a sha256 block.
+// sha256BlockLen is the size of a sha256 block.
 const sha256BlockLen = sha256.BlockSize
 
-// aesBlockSize is the AES blockSize.
+// aesBlockLen is the AES block size.
 const aesBlockLen = aes.BlockSize
 
 // aesBuf is a buffer used by xorCtrAES.
