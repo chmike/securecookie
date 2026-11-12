@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chmike/securecookie"
+	"github.com/chmike/securecookie/v2"
 )
 
 // Full web server example setting and retrieving a cookie named "myCookie".
