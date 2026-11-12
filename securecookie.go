@@ -146,6 +146,7 @@ type Obj struct {
 	delStr   string
 	maxAge   int
 	sameSite SameSite
+	keyID    byte
 	ipad     [sha256.BlockSize]byte
 	opad     [sha256.BlockSize]byte
 	block    cipher.Block
@@ -340,7 +341,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	nowUnix := time.Now().Unix()
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
-	var bLen = sha256.BlockSize + len(o.name) + ((1+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8+5)/6
+	var bLen = sha256.BlockSize + len(o.name) + ((headerLen+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8+5)/6
 	if cap(*bPtr) < bLen {
 		*bPtr = make([]byte, bLen+20)
 	}
@@ -349,7 +350,8 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	endPos += copy(b[endPos:], o.name)
 	var encPos = endPos
 	b[endPos] = byte(encodingVersion) << 2
-	endPos++
+	b[endPos+1] = o.keyID
+	endPos += headerLen
 	var iv = b[endPos : endPos+ivLen]
 	if err := fillRandom(iv); err != nil {
 		return dst, err
@@ -363,8 +365,8 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	nPad = (nPad>>1 | nPad<<1) & 3 // computes : 0 -> 0; 1 -> 2; 2 -> 1
 	b[encPos] |= byte(nPad)
 	endPos += nPad
-	if err := fillRandom(b[padPos:endPos]); err != nil {
-		return dst, err
+	for i := padPos; i < endPos; i++ {
+		b[i] = 0
 	}
 	o.xorCtrAes(iv, b[xorPos:endPos])
 	endPos += o.hmacSha256(b[endPos:], b[:endPos])
@@ -506,6 +508,9 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 		return dst, time.Time{}, fmt.Errorf("securecookie: invalid padding length %d, expected value <= %d",
 			nPad, maxPaddingLen)
 	}
+	if keyID := b[encPos+1]; keyID != o.keyID {
+		return dst, time.Time{}, fmt.Errorf("securecookie: unknown key id %d", keyID)
+	}
 	var valMac = b[len(b)-hmacLen:]
 	b = b[:len(b)-hmacLen]
 	var locMac [hmacLen]byte
@@ -514,9 +519,20 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	if subtle.ConstantTimeCompare(valMac, locMac[:]) != 1 {
 		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
 	}
-	var iv = b[1 : 1+ivLen]
-	b = b[1+ivLen:]
+	var iv = b[headerLen : headerLen+ivLen]
+	b = b[headerLen+ivLen:]
 	o.xorCtrAes(iv, b)
+	if nPad > len(b) {
+		return dst, time.Time{}, errors.New("securecookie: invalid padding length")
+	}
+	var pad byte
+	for _, c := range b[len(b)-nPad:] {
+		pad |= c
+	}
+	if pad != 0 {
+		return dst, time.Time{}, errors.New("securecookie: invalid padding bytes, expected zeros")
+	}
+	b = b[:len(b)-nPad]
 	stamp, stampLen := decodeUint64(b)
 	if stampLen == 0 {
 		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp encoding")
@@ -528,7 +544,7 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	if now.Before(valStamp) || now.After(maxStamp) {
 		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp value")
 	}
-	return append(dst, b[stampLen:len(b)-nPad]...), valStamp, nil
+	return append(dst, b[stampLen:]...), valStamp, nil
 }
 
 // decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
@@ -642,19 +658,23 @@ func (o *Obj) xorCtrAes(iv []byte, data []byte) {
 
 // fillRandom fills b with cryptographically secure pseudorandom bytes.
 func fillRandom(b []byte) error {
-	if forceError == 0 {
-		_, err := rand.Read(b)
-		return err
-	}
-	if forceError == 1 {
+	if forceError != 0 {
 		return errors.New("force error")
 	}
-	forceError--
-	return nil
+	_, err := rand.Read(b)
+	return err
 }
 
-// encodingVersion is the version of the generated encoding.
-const encodingVersion = 0
+// encodingVersion is the version of the generated encoding. Version 0 was
+// used by the v1 package.
+const encodingVersion = 1
+
+// headerLen is the byte length of the encoded value header. The first byte
+// holds the encoding version in its 6 most significant bits, and the number
+// of padding bytes in its 2 least significant bits. The second byte is the
+// id of the key used to encode the value. The header is not encrypted, but
+// it is authenticated by the MAC.
+const headerLen = 2
 
 // epochOffset is the number of seconds to subtract from the unix time to get
 // the epoch used in these secure cookies.
@@ -682,7 +702,7 @@ const maxStampLen = 10
 const maxPaddingLen = 2
 
 // minEncLen is the minimum encoding length of a value.
-const minEncLen = ((1+ivLen+hmacLen)*8 + 5) / 6
+const minEncLen = ((headerLen+ivLen+hmacLen)*8 + 5) / 6
 
 // maxCookieLen is the maximum length of a cookie.
 const maxCookieLen = 4000

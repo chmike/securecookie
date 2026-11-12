@@ -403,12 +403,8 @@ func TestEncodeValueErrors(t *testing.T) {
 		panic(err)
 	}
 	buf := make([]byte, 0, 59)
-	forceError = 2
-	defer func() { forceError = 0 }()
-	if _, err := obj.encodeValue(buf, []byte{1}); err == nil {
-		t.Errorf("unexpected nil error")
-	}
 	forceError = 1
+	defer func() { forceError = 0 }()
 	if _, err := obj.encodeValue(buf, []byte{}); err == nil {
 		t.Errorf("unexpected nil error")
 	}
@@ -491,11 +487,11 @@ func TestDecodeValueErrorsB(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	dec = dec[:len(dec)-hmacLen]
-	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
-	for i := 1 + ivLen; i < 1+ivLen+10; i++ {
+	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
+	for i := headerLen + ivLen; i < headerLen+ivLen+10; i++ {
 		dec[i] |= 0x80
 	}
-	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
+	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
 	hm.Reset()
 	hm.Write([]byte(obj.name))
 	hm.Write(dec)
@@ -504,6 +500,80 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	purgeBufPool()
 	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
+	}
+	// set an unknown key id with a valid MAC
+	buf, err = obj.encodeValue(nil, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec, err = decodeBase64(nil, string(buf))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if dec[1] != 0 {
+		t.Errorf("got key id %d, expected 0", dec[1])
+	}
+	dec[1] = 1
+	dec = dec[:len(dec)-hmacLen]
+	hm.Reset()
+	hm.Write([]byte(obj.name))
+	hm.Write(dec)
+	dec = hm.Sum(dec)
+	buf = encodeBase64(buf[:0], dec)
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "unknown key id 1") {
+		t.Errorf("got error '%v', expected unknown key id error", err)
+	}
+	// modify the key id without updating the MAC
+	dec[1] = 0
+	buf = encodeBase64(buf[:0], dec)
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "MAC mismatch") {
+		t.Errorf("got error '%v', expected MAC mismatch error", err)
+	}
+	// check the encoding version
+	if dec[0]>>2 != encodingVersion {
+		t.Errorf("got encoding version %d, expected %d", dec[0]>>2, encodingVersion)
+	}
+	// check that padding bytes are zero, and set a non-zero padding byte
+	// with a valid MAC
+	var nPad int
+	for n := 0; nPad == 0; n++ {
+		buf, err = obj.encodeValue(nil, make([]byte, n))
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		dec, err = decodeBase64(nil, string(buf))
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		nPad = int(dec[0] & 3)
+	}
+	dec = dec[:len(dec)-hmacLen]
+	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
+	for i, c := range dec[len(dec)-nPad:] {
+		if c != 0 {
+			t.Errorf("got padding byte %d with value %d, expected 0", i, c)
+		}
+	}
+	dec[len(dec)-1] = 1
+	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
+	hm.Reset()
+	hm.Write([]byte(obj.name))
+	hm.Write(dec)
+	dec = hm.Sum(dec)
+	buf = encodeBase64(buf[:0], dec)
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "invalid padding bytes") {
+		t.Errorf("got error '%v', expected invalid padding bytes error", err)
+	}
+	// padding length bigger than the encrypted data, with a valid MAC
+	dec = make([]byte, headerLen+ivLen+1)
+	dec[0] = byte(encodingVersion)<<2 | 2
+	hm.Reset()
+	hm.Write([]byte(obj.name))
+	hm.Write(dec)
+	dec = hm.Sum(dec)
+	buf = encodeBase64(buf[:0], dec)
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "invalid padding length") {
+		t.Errorf("got error '%v', expected invalid padding length error", err)
 	}
 }
 
@@ -714,25 +784,15 @@ func TestChmikeValueLen(t *testing.T) {
 }
 
 func TestGorillaValueLen(t *testing.T) {
-	var name = "test"
+	var name = "__Host-test"
 	var inValue = []byte("some value")
-	var recorder = httptest.NewRecorder()
-	var hashKey = make([]byte, 16)
-	var blockKey = make([]byte, 16)
-	var s = securecookie.New(hashKey, blockKey)
-	var cookie = http.Cookie{Name: name}
-	encoded, err := s.Encode(name, inValue)
-	if err != nil {
-		panic(err)
+	for _, nop := range []bool{false, true} {
+		encoded, err := gorillaCodec(nop).Encode(name, inValue)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Println("Gorilla value (NopEncoder:", nop, "):", encoded, "len:", len(encoded))
 	}
-	cookie.Value = encoded
-	http.SetCookie(recorder, &cookie)
-	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	c, err := request.Cookie("test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("Gorilla value:", c.Value, "len:", len(c.Value))
 }
 
 func TestCookieText(t *testing.T) {
@@ -779,43 +839,54 @@ func BenchmarkChmikeDecodeValue(b *testing.B) {
 	}
 }
 
+// benchCookieHeader returns a request header with a realistic Cookie line:
+// the cookie name=value surrounded by two other cookies.
+func benchCookieHeader(name, value string) http.Header {
+	return http.Header{"Cookie": {"a=1; " + name + "=" + value + "; b=2"}}
+}
+
+// gorillaCodec returns a Gorilla secure cookie codec with keys of the same
+// length as this package: 16 bytes for HMAC-SHA256 and 16 bytes for
+// AES-128. When nop is true, the value is not serialized with encoding/gob.
+func gorillaCodec(nop bool) *securecookie.SecureCookie {
+	s := securecookie.New(make([]byte, 16), make([]byte, 16))
+	if nop {
+		s.SetSerializer(securecookie.NopEncoder{})
+	}
+	return s
+}
+
 func BenchmarkChmikeSetCookie(b *testing.B) {
-	var name = "test"
-	var inValue = []byte("some value")
-	var recorder = httptest.NewRecorder()
-	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, time.Hour)
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		panic(err)
 	}
+	recorder := httptest.NewRecorder()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		err = obj.SetValue(recorder, inValue)
-		if err != nil {
+		if err := obj.SetValue(recorder, val); err != nil {
 			panic(err)
 		}
 		recorder.Header().Del("Set-Cookie")
 	}
 }
 
-func BenchmarkGorillaSetCookie(b *testing.B) {
-	var name = "test"
-	var inValue = []byte("some value")
-	var recorder = httptest.NewRecorder()
-	var hashKey = make([]byte, 16)
-	var blockKey = make([]byte, 16)
-	var s = securecookie.New(hashKey, blockKey)
-	var cookie = http.Cookie{
-		Name:     name,
-		Path:     "path",
-		Domain:   "example.com",
+// benchmarkGorillaSetCookie sets a cookie with the same name and attributes
+// as BenchmarkChmikeSetCookie.
+func benchmarkGorillaSetCookie(b *testing.B, nop bool) {
+	s := gorillaCodec(nop)
+	recorder := httptest.NewRecorder()
+	cookie := http.Cookie{
+		Name:     "__Host-test",
+		Path:     "/",
 		MaxAge:   3600,
 		HttpOnly: true,
 		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		encoded, err := s.Encode(name, inValue)
+		encoded, err := s.Encode(cookie.Name, val)
 		if err != nil {
 			panic(err)
 		}
@@ -825,56 +896,60 @@ func BenchmarkGorillaSetCookie(b *testing.B) {
 	}
 }
 
+func BenchmarkGorillaSetCookie(b *testing.B) {
+	benchmarkGorillaSetCookie(b, false)
+}
+
+func BenchmarkGorillaNopSetCookie(b *testing.B) {
+	benchmarkGorillaSetCookie(b, true)
+}
+
 func BenchmarkChmikeGetCookie(b *testing.B) {
-	var name = "test"
-	var inValue = []byte("some value")
-	var recorder = httptest.NewRecorder()
-	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, time.Hour)
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		panic(err)
 	}
-	err = obj.SetValue(recorder, inValue)
+	encoded, err := obj.encodeValue(nil, val)
 	if err != nil {
 		panic(err)
 	}
-	out := make([]byte, len(inValue))
-	//fmt.Println("Chmike cookie:", recorder.HeaderMap["Set-Cookie"])
-	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
+	request := &http.Request{Header: benchCookieHeader(obj.Name(), string(encoded))}
+	out := make([]byte, 0, 64)
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		_, _, err := obj.Value(out[:0], request)
+		if _, _, err := obj.Value(out[:0], request); err != nil {
+			panic(err)
+		}
+	}
+}
+
+// benchmarkGorillaGetCookie gets a cookie from the same Cookie header line
+// as BenchmarkChmikeGetCookie.
+func benchmarkGorillaGetCookie(b *testing.B, nop bool) {
+	s := gorillaCodec(nop)
+	name := "__Host-test"
+	encoded, err := s.Encode(name, val)
+	if err != nil {
+		panic(err)
+	}
+	request := &http.Request{Header: benchCookieHeader(name, encoded)}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		c, err := request.Cookie(name)
 		if err != nil {
+			panic(err)
+		}
+		var out []byte
+		if err = s.Decode(name, c.Value, &out); err != nil {
 			panic(err)
 		}
 	}
 }
 
 func BenchmarkGorillaGetCookie(b *testing.B) {
-	var name = "test"
-	var inValue = []byte("some value")
-	var recorder = httptest.NewRecorder()
-	var hashKey = make([]byte, 16)
-	var blockKey = make([]byte, 16)
-	var s = securecookie.New(hashKey, blockKey)
-	var cookie = http.Cookie{Name: name}
-	encoded, err := s.Encode(name, inValue)
-	if err != nil {
-		panic(err)
-	}
-	cookie.Value = encoded
-	http.SetCookie(recorder, &cookie)
-	//fmt.Println("Gorilla cookie:", recorder.HeaderMap["Set-Cookie"])
-	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		outCookie, err := request.Cookie(name)
-		if err != nil {
-			panic(err)
-		}
-		var outValue []byte
-		if err = s.Decode(name, outCookie.Value, &outValue); err != nil {
-			panic(err)
-		}
-	}
+	benchmarkGorillaGetCookie(b, false)
+}
+
+func BenchmarkGorillaNopGetCookie(b *testing.B) {
+	benchmarkGorillaGetCookie(b, true)
 }
