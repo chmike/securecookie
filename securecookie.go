@@ -82,8 +82,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -147,9 +145,7 @@ type Obj struct {
 	maxAge   int
 	sameSite SameSite
 	keyID    byte
-	ipad     [sha256.BlockSize]byte
-	opad     [sha256.BlockSize]byte
-	block    cipher.Block
+	aead     cipher.AEAD
 }
 
 // Option is an optional parameter of New and MustNew.
@@ -201,7 +197,7 @@ func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, e
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
 	}
-	block, err := aesCipher(key[len(key)/2:])
+	aead, err := aesGCM(key[len(key)/2:])
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +214,7 @@ func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, e
 	if maxAge > MaxMaxAge {
 		return nil, fmt.Errorf("securecookie: max age %s can't exceed %s", maxAge, MaxMaxAge)
 	}
-	var o = &Obj{sameSite: SameSiteLax, block: block}
+	var o = &Obj{sameSite: SameSiteLax, aead: aead}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -237,32 +233,27 @@ func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, e
 	o.maxAge = int(maxAgeSec)
 	o.endStr = "; Path=/; Max-Age=" + strconv.FormatInt(maxAgeSec, 10) + "; HttpOnly; Secure" + sameSiteStr
 	o.delStr = fullName + "=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure" + sameSiteStr
-	for i := range o.ipad {
-		o.ipad[i] = 0x36
-		o.opad[i] = 0x5C
-	}
-	for i := range key[:len(key)/2] {
-		o.ipad[i] ^= key[i]
-		o.opad[i] ^= key[i]
-	}
 	return o, nil
 }
 
 // hostPrefix is the cookie name prefix added by New.
 const hostPrefix = "__Host-"
 
-// aesCipher returns the AES cipher block for key, or the wrapped error
-// returned by aes.NewCipher. When forceAesError is true, the key is
+// aesGCM returns the AES-GCM AEAD for key, or the wrapped error returned by
+// aes.NewCipher or cipher.NewGCM. When forceAesError is true, the key is
 // truncated so that aes.NewCipher returns an error.
-func aesCipher(key []byte) (cipher.Block, error) {
+func aesGCM(key []byte) (cipher.AEAD, error) {
 	if forceAesError {
 		key = key[:1]
 	}
 	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("securecookie: %w", err)
+	if err == nil {
+		var aead cipher.AEAD
+		if aead, err = cipher.NewGCM(block); err == nil {
+			return aead, nil
+		}
 	}
-	return block, nil
+	return nil, fmt.Errorf("securecookie: %w", err)
 }
 
 // checkName returns an error if the cookie name is invalid.
@@ -337,40 +328,43 @@ func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 // encodeValue appends the encoded value val to dst.
 // dst is allocated if nil, or grown if too small.
 // Return dst and the error if any.
+//
+// The encoded value is the base64 encoding of
+//
+//	[header][nonce][AES-GCM(stamp ‖ value ‖ padding)][GCM tag]
+//
+// The cookie name and the header are the additional authenticated data.
 func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	nowUnix := time.Now().Unix()
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
-	var bLen = sha256.BlockSize + len(o.name) + ((headerLen+ivLen+maxStampLen+len(val)+maxPaddingLen+hmacLen)*8+5)/6
+	var bLen = len(o.name) + headerLen + nonceLen + maxStampLen + len(val) + maxPaddingLen + tagLen
 	if cap(*bPtr) < bLen {
 		*bPtr = make([]byte, bLen+20)
 	}
 	var b = (*bPtr)[:cap(*bPtr)]
-	var endPos = copy(b, o.ipad[:])
-	endPos += copy(b[endPos:], o.name)
-	var encPos = endPos
-	b[endPos] = byte(encodingVersion) << 2
-	b[endPos+1] = o.keyID
-	endPos += headerLen
-	var iv = b[endPos : endPos+ivLen]
-	if err := fillRandom(iv); err != nil {
+	var encPos = copy(b, o.name)
+	var noncePos = encPos + headerLen
+	var ptPos = noncePos + nonceLen
+	b[encPos] = byte(encodingVersion) << 2
+	b[encPos+1] = o.keyID
+	var nonce = b[noncePos:ptPos]
+	if err := fillRandom(nonce); err != nil {
 		return dst, err
 	}
-	endPos += ivLen
-	var xorPos = endPos
+	var endPos = ptPos
 	endPos += encodeUint64(b[endPos:], uint64(nowUnix)-epochOffset)
 	endPos += copy(b[endPos:], val)
 	var padPos = endPos
-	var nPad = (endPos + hmacLen - encPos) % 3
+	var nPad = (endPos + tagLen - encPos) % 3
 	nPad = (nPad>>1 | nPad<<1) & 3 // computes : 0 -> 0; 1 -> 2; 2 -> 1
 	b[encPos] |= byte(nPad)
 	endPos += nPad
 	for i := padPos; i < endPos; i++ {
 		b[i] = 0
 	}
-	o.xorCtrAes(iv, b[xorPos:endPos])
-	endPos += o.hmacSha256(b[endPos:], b[:endPos])
-	return encodeBase64(dst, b[encPos:endPos]), nil
+	var ct = o.aead.Seal(b[ptPos:ptPos], nonce, b[ptPos:endPos], b[:noncePos])
+	return encodeBase64(dst, b[encPos:ptPos+len(ct)]), nil
 }
 
 // encodeUint64 encodes v in b and returns the bytes written.
@@ -487,14 +481,12 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	}
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
-	var bLen = sha256BlockLen + len(o.name) + len(val)
+	var bLen = len(o.name) + len(val)
 	if cap(*bPtr) < bLen {
 		*bPtr = make([]byte, bLen+20)
 	}
 	var b = (*bPtr)[:cap(*bPtr)]
-	var endPos = copy(b, o.ipad[:])
-	endPos += copy(b[endPos:], o.name)
-	var encPos = endPos
+	var encPos = copy(b, o.name)
 	b, err := decodeBase64(b[:encPos], val)
 	if err != nil {
 		return dst, time.Time{}, err
@@ -511,17 +503,12 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	if keyID := b[encPos+1]; keyID != o.keyID {
 		return dst, time.Time{}, fmt.Errorf("securecookie: unknown key id %d", keyID)
 	}
-	var valMac = b[len(b)-hmacLen:]
-	b = b[:len(b)-hmacLen]
-	var locMac [hmacLen]byte
-	o.hmacSha256(locMac[:], b)
-	b = b[encPos:]
-	if subtle.ConstantTimeCompare(valMac, locMac[:]) != 1 {
-		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
+	var noncePos = encPos + headerLen
+	var ptPos = noncePos + nonceLen
+	b, err = o.aead.Open(b[ptPos:ptPos], b[noncePos:ptPos], b[ptPos:], b[:noncePos])
+	if err != nil {
+		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (authentication failed)")
 	}
-	var iv = b[headerLen : headerLen+ivLen]
-	b = b[headerLen+ivLen:]
-	o.xorCtrAes(iv, b)
 	if nPad > len(b) {
 		return dst, time.Time{}, errors.New("securecookie: invalid padding length")
 	}
@@ -617,45 +604,6 @@ func (o *Obj) Delete(w http.ResponseWriter) error {
 	return nil
 }
 
-func (o *Obj) hmacSha256(b []byte, data1 []byte) int {
-	// ipad is already copied in front of data1
-	var digest = sha256.Sum256(data1)
-	var data2 [sha256BlockLen + hmacLen]byte
-	copy(data2[:sha256BlockLen], o.opad[:])
-	copy(data2[sha256BlockLen:], digest[:])
-	digest = sha256.Sum256(data2[:])
-	return copy(b, digest[:])
-}
-
-// xorCtrAes computes the xor of data with encrypted ctr counter initialized
-// with iv.
-func (o *Obj) xorCtrAes(iv []byte, data []byte) {
-	var buf = aesBufPool.Get().(*aesBuf)
-	defer aesBufPool.Put(buf)
-	var ctr = buf[:aesBlockLen]
-	var bits = buf[aesBlockLen:]
-	for i := range ctr {
-		ctr[i] = iv[i]
-	}
-	for len(data) > aesBlockLen {
-		o.block.Encrypt(bits, ctr)
-		for i := range bits {
-			data[i] ^= bits[i]
-		}
-		for i := aesBlockLen - 1; i >= 0; i-- {
-			ctr[i]++
-			if ctr[i] != 0 {
-				break
-			}
-		}
-		data = data[aesBlockLen:]
-	}
-	o.block.Encrypt(bits, ctr)
-	for i := range data {
-		data[i] ^= bits[i]
-	}
-}
-
 // fillRandom fills b with cryptographically secure pseudorandom bytes.
 func fillRandom(b []byte) error {
 	if forceError != 0 {
@@ -673,27 +621,18 @@ const encodingVersion = 1
 // holds the encoding version in its 6 most significant bits, and the number
 // of padding bytes in its 2 least significant bits. The second byte is the
 // id of the key used to encode the value. The header is not encrypted, but
-// it is authenticated by the MAC.
+// it is authenticated by AES-GCM.
 const headerLen = 2
 
 // epochOffset is the number of seconds to subtract from the unix time to get
 // the epoch used in these secure cookies.
 const epochOffset uint64 = 1505230500
 
-// hmacLen is the byte length of the hmac(SHA256) digest.
-const hmacLen = sha256.Size
+// nonceLen is the byte length of the AES-GCM nonce.
+const nonceLen = 12
 
-// sha256BlockLen is the size of a sha256 block.
-const sha256BlockLen = sha256.BlockSize
-
-// aesBlockLen is the AES block size.
-const aesBlockLen = aes.BlockSize
-
-// aesBuf is a buffer used by xorCtrAES.
-type aesBuf [2 * aesBlockLen]byte
-
-// ivLen is the byte length of the iv.
-const ivLen = aesBlockLen
+// tagLen is the byte length of the AES-GCM authentication tag.
+const tagLen = 16
 
 // maxStampLen is the maximum byte length of the time stamp (seconds).
 const maxStampLen = 10
@@ -702,7 +641,7 @@ const maxStampLen = 10
 const maxPaddingLen = 2
 
 // minEncLen is the minimum encoding length of a value.
-const minEncLen = ((headerLen+ivLen+hmacLen)*8 + 5) / 6
+const minEncLen = ((headerLen+nonceLen+tagLen)*8 + 5) / 6
 
 // maxCookieLen is the maximum length of a cookie.
 const maxCookieLen = 4000
@@ -715,12 +654,9 @@ var errTooLong = fmt.Errorf("securecookie: encoded value is too long, can't exce
 // forceError is used for 100% test coverage.
 var forceError int
 
-// forceAesError forces aesCipher to return an error. It is used for 100%
+// forceAesError forces aesGCM to return an error. It is used for 100%
 // test coverage.
 var forceAesError bool
 
 // pool of buffers used for value encoding and decoding.
 var bufPool = sync.Pool{New: func() interface{} { var b []byte; return &b }}
-
-// pool of aesBuf used to cipher and decipher with XOR-CTR-AES.
-var aesBufPool = sync.Pool{New: func() interface{} { return new(aesBuf) }}

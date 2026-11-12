@@ -3,9 +3,6 @@ package securecookie
 import (
 	"bytes"
 	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -309,52 +306,6 @@ func TestDecodeUint64(t *testing.T) {
 	}
 }
 
-func TestXorCtrAes(t *testing.T) {
-	var iv = make([]byte, aes.BlockSize)
-	var txt = []byte(strings.Repeat("test ", 10))
-	var ref = []byte(strings.Repeat("test ", 10))
-	var key = make([]byte, aes.BlockSize*2)
-	obj, err := New("name", key, time.Hour)
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	// cipher
-	obj.xorCtrAes(iv, txt)
-	// decipher
-	block, err := aes.NewCipher(key[len(key)/2:])
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	var stream = cipher.NewCTR(block, iv)
-	stream.XORKeyStream(txt, txt)
-	if !bytes.Equal(txt, ref) {
-		t.Errorf("ctr aes ciphering error")
-	}
-}
-
-func TestHmacSha256(t *testing.T) {
-	var txt = []byte(strings.Repeat("test ", 10))
-	var key = make([]byte, aes.BlockSize*2)
-	obj, err := New("name", key, time.Hour)
-	if err != nil {
-		t.Fatal("unexpected error:", err)
-	}
-	var mac1 = make([]byte, hmacLen)
-	// ipad must be prepended to the txt to hash
-	var tmp = make([]byte, sha256.BlockSize+len(txt))
-	copy(tmp[copy(tmp, obj.ipad[:]):], txt)
-	var n = obj.hmacSha256(mac1, tmp)
-	if n != len(mac1) {
-		t.Fatalf("got n %d, expected %d", n, len(mac1))
-	}
-	var mac = hmac.New(sha256.New, key[:len(key)/2])
-	mac.Write(txt)
-	var mac2 = mac.Sum(nil)
-	if !bytes.Equal(mac1, mac2) {
-		t.Errorf("got mac: \n%s\n expected mac: \n%s", bytes2Str(mac1), bytes2Str(mac2))
-	}
-}
-
 func TestEncodeDecodeValue(t *testing.T) {
 	tests := []struct {
 		in               []byte
@@ -453,127 +404,102 @@ func TestDecodeValueErrorsA(t *testing.T) {
 	obj.maxAge += 10000
 }
 
+// sealValue returns the value encoding of plaintext with the given header
+// bytes, sealed with the object key. The length of plaintext, which must
+// include the padding bytes, must be a multiple of 3.
+func sealValue(obj *Obj, tag, keyID byte, plaintext []byte) string {
+	aad := append([]byte(obj.name), tag, keyID)
+	nonce := make([]byte, nonceLen)
+	b := append([]byte{tag, keyID}, nonce...)
+	b = obj.aead.Seal(b, nonce, plaintext, aad)
+	return string(encodeBase64(nil, b))
+}
+
+// stampBytes returns the encoded current time stamp followed by n zero bytes,
+// with a total length multiple of 3. It returns the number of zero bytes
+// added to reach a multiple of 3.
+func stampBytes(n int) ([]byte, int) {
+	var b [maxStampLen]byte
+	l := encodeUint64(b[:], uint64(time.Now().Unix())-epochOffset)
+	p := append(b[:l:l], make([]byte, n)...)
+	nPad := (3 - len(p)%3) % 3
+	return append(p, make([]byte, nPad)...), nPad
+}
+
 func TestDecodeValueErrorsB(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var tag = byte(encodingVersion) << 2
+
+	// check sealValue: a valid value
+	pt, nPad := stampBytes(4)
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|byte(nPad), 0, pt)); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// non-zero padding byte
+	pt, nPad = stampBytes(4)
+	if nPad == 0 {
+		pt, nPad = stampBytes(5)
+	}
+	pt[len(pt)-1] = 1
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|byte(nPad), 0, pt)); err == nil || !strings.Contains(err.Error(), "invalid padding bytes") {
+		t.Errorf("got error '%v', expected invalid padding bytes error", err)
+	}
+	// padding length bigger than the plaintext
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|2, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid padding length") {
+		t.Errorf("got error '%v', expected invalid padding length error", err)
+	}
+	// invalid padding length value
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|3, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid padding length 3") {
+		t.Errorf("got error '%v', expected invalid padding length 3 error", err)
+	}
+	// invalid stamp encoding
+	pt = bytes.Repeat([]byte{0x80}, 12)
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag, 0, pt)); err == nil || !strings.Contains(err.Error(), "time stamp encoding") {
+		t.Errorf("got error '%v', expected time stamp encoding error", err)
+	}
+	// invalid encoding version
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, 0, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid encoding version 0") {
+		t.Errorf("got error '%v', expected invalid encoding version error", err)
+	}
+	// unknown key id
+	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag, 1, nil)); err == nil || !strings.Contains(err.Error(), "unknown key id 1") {
+		t.Errorf("got error '%v', expected unknown key id error", err)
+	}
+	// value sealed for another cookie name with the same key
+	other, err := New("other", make([]byte, KeyLen), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pt, nPad = stampBytes(4)
+	if _, _, err := obj.decodeValue(nil, sealValue(other, tag|byte(nPad), 0, pt)); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("got error '%v', expected authentication failed error", err)
+	}
+	// header modified after sealing
+	dec, err := decodeBase64(nil, sealValue(obj, tag|byte(nPad), 0, pt))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	dec[0] = dec[0]&^3 | byte((nPad+1)%3) // change the padding length to another valid length
+	if _, _, err := obj.decodeValue(nil, string(encodeBase64(nil, dec))); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("got error '%v', expected authentication failed error", err)
+	}
+	// check the encoded value header produced by encodeValue
 	buf, err := obj.encodeValue(nil, []byte{})
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	// set an invalid paddingLen value
-	dec, err := decodeBase64(nil, string(buf))
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	dec[0] |= 3
-	dec = dec[:len(dec)-hmacLen]
-	var hm = hmac.New(sha256.New, make([]byte, KeyLen/2))
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	// set an invalid stamp encoding
-	buf, err = obj.encodeValue(nil, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
 	dec, err = decodeBase64(nil, string(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	dec = dec[:len(dec)-hmacLen]
-	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
-	for i := headerLen + ivLen; i < headerLen+ivLen+10; i++ {
-		dec[i] |= 0x80
-	}
-	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
-	hm.Reset()
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	purgeBufPool()
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	// set an unknown key id with a valid MAC
-	buf, err = obj.encodeValue(nil, []byte{})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	dec, err = decodeBase64(nil, string(buf))
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	if dec[1] != 0 {
-		t.Errorf("got key id %d, expected 0", dec[1])
-	}
-	dec[1] = 1
-	dec = dec[:len(dec)-hmacLen]
-	hm.Reset()
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "unknown key id 1") {
-		t.Errorf("got error '%v', expected unknown key id error", err)
-	}
-	// modify the key id without updating the MAC
-	dec[1] = 0
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "MAC mismatch") {
-		t.Errorf("got error '%v', expected MAC mismatch error", err)
-	}
-	// check the encoding version
 	if dec[0]>>2 != encodingVersion {
 		t.Errorf("got encoding version %d, expected %d", dec[0]>>2, encodingVersion)
 	}
-	// check that padding bytes are zero, and set a non-zero padding byte
-	// with a valid MAC
-	var nPad int
-	for n := 0; nPad == 0; n++ {
-		buf, err = obj.encodeValue(nil, make([]byte, n))
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err)
-		}
-		dec, err = decodeBase64(nil, string(buf))
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err)
-		}
-		nPad = int(dec[0] & 3)
-	}
-	dec = dec[:len(dec)-hmacLen]
-	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
-	for i, c := range dec[len(dec)-nPad:] {
-		if c != 0 {
-			t.Errorf("got padding byte %d with value %d, expected 0", i, c)
-		}
-	}
-	dec[len(dec)-1] = 1
-	obj.xorCtrAes(dec[headerLen:headerLen+ivLen], dec[headerLen+ivLen:])
-	hm.Reset()
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "invalid padding bytes") {
-		t.Errorf("got error '%v', expected invalid padding bytes error", err)
-	}
-	// padding length bigger than the encrypted data, with a valid MAC
-	dec = make([]byte, headerLen+ivLen+1)
-	dec[0] = byte(encodingVersion)<<2 | 2
-	hm.Reset()
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil || !strings.Contains(err.Error(), "invalid padding length") {
-		t.Errorf("got error '%v', expected invalid padding length error", err)
+	if dec[1] != 0 {
+		t.Errorf("got key id %d, expected 0", dec[1])
 	}
 }
 
@@ -845,9 +771,9 @@ func benchCookieHeader(name, value string) http.Header {
 	return http.Header{"Cookie": {"a=1; " + name + "=" + value + "; b=2"}}
 }
 
-// gorillaCodec returns a Gorilla secure cookie codec with keys of the same
-// length as this package: 16 bytes for HMAC-SHA256 and 16 bytes for
-// AES-128. When nop is true, the value is not serialized with encoding/gob.
+// gorillaCodec returns a Gorilla secure cookie codec with 16 bytes keys for
+// HMAC-SHA256 and AES-128. When nop is true, the value is not serialized with
+// encoding/gob.
 func gorillaCodec(nop bool) *securecookie.SecureCookie {
 	s := securecookie.New(make([]byte, 16), make([]byte, 16))
 	if nop {
