@@ -381,7 +381,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, err := obj.decodeValue(nil, string(out))
+			in, _, err := obj.decodeValue(nil, string(out))
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -428,16 +428,16 @@ func TestDecodeValueErrorsA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := obj.decodeValue(nil, ""); err == nil {
+	if _, _, err := obj.decodeValue(nil, ""); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
 		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
 	}
 	buf, err := obj.encodeValue(nil, []byte{})
@@ -445,13 +445,13 @@ func TestDecodeValueErrorsA(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	buf[len(buf)-1]--
-	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf[len(buf)-1]++
 
 	obj.maxAge -= 10000
-	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	obj.maxAge += 10000
@@ -478,7 +478,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	hm.Write(dec)
 	dec = hm.Sum(dec)
 	buf = encodeBase64(buf[:0], dec)
-	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	// set an invalid stamp encoding
@@ -502,7 +502,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	dec = hm.Sum(dec)
 	buf = encodeBase64(buf[:0], dec)
 	purgeBufPool()
-	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 }
@@ -512,45 +512,16 @@ func TestDecodeValueErrorsC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := obj.decodeValue(nil, ""); err == nil {
+	if _, _, err := obj.decodeValue(nil, ""); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	buf, err := obj.encodeValue(nil, []byte{})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	buf[len(buf)-1]--
-	if _, err := obj.decodeValue(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	buf[len(buf)-1]++
-
-	if _, err := obj.decodeValue(nil, string(buf)); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-}
-
-func TestDecodeValueAndStampErrorsA(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, ""); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
 		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
 	}
 	buf, err := obj.encodeValue(nil, []byte{})
@@ -558,96 +529,12 @@ func TestDecodeValueAndStampErrorsA(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	buf[len(buf)-1]--
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf[len(buf)-1]++
 
-	obj.maxAge -= 10000
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	obj.maxAge += 10000
-}
-
-func TestDecodeValueAndStampErrorsB(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	buf, err := obj.encodeValue(nil, []byte{})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	// set an invalid paddingLen value
-	dec, err := decodeBase64(nil, string(buf))
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	dec[0] |= 3
-	dec = dec[:len(dec)-hmacLen]
-	var hm = hmac.New(sha256.New, make([]byte, KeyLen/2))
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	// set an invalid stamp encoding
-	buf, err = obj.encodeValue(nil, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	dec, err = decodeBase64(nil, string(buf))
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	dec = dec[:len(dec)-hmacLen]
-	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
-	for i := 1 + ivLen; i < 1+ivLen+10; i++ {
-		dec[i] |= 0x80
-	}
-	obj.xorCtrAes(dec[1:1+ivLen], dec[1+ivLen:])
-	hm.Reset()
-	hm.Write([]byte(obj.name))
-	hm.Write(dec)
-	dec = hm.Sum(dec)
-	buf = encodeBase64(buf[:0], dec)
-	purgeBufPool()
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestDecodeValueAndStampErrorsC(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, ""); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if _, _, err := obj.decodeValueAndStamp(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
-		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
-	}
-	buf, err := obj.encodeValue(nil, []byte{})
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	buf[len(buf)-1]--
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	buf[len(buf)-1]++
-
-	if _, _, err := obj.decodeValueAndStamp(nil, string(buf)); err != nil {
+	if _, _, err := obj.decodeValue(nil, string(buf)); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
@@ -655,27 +542,50 @@ func TestDecodeValueAndStampErrorsC(t *testing.T) {
 func TestSetAndGetCookie(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+		t.Fatalf("unexpected error: %s", err)
 	}
 	recorder := httptest.NewRecorder()
 	inValue := []byte("some value")
+	now := time.Now().Truncate(time.Second)
 	err = obj.SetValue(recorder, inValue)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	outValue, err := obj.GetValue(nil, request)
+	outValue, stamp, err := obj.Value(nil, request)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	} else if !bytes.Equal(outValue, inValue) {
 		t.Errorf("got value '%s', expected '%s'", outValue, inValue)
 	}
+	if stampDiff := stamp.Sub(now); stampDiff > time.Second || stampDiff < -time.Second {
+		t.Error("invalid stamp diff:", stampDiff)
+	}
 
-	// test retrieve non-existent cookie.
-	obj.name = "xxx"
-	outValue, err = obj.GetValue(nil, request)
+	// value appended to dst
+	dst := []byte("prefix:")
+	outValue, _, err = obj.Value(dst, request)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	} else if string(outValue) != "prefix:some value" {
+		t.Errorf("got value '%s', expected '%s'", outValue, "prefix:some value")
+	}
+
+	// invalid value
+	badRequest := &http.Request{Header: http.Header{"Cookie": {obj.Name() + "=AAAA"}}}
+	outValue, stamp, err = obj.Value(nil, badRequest)
 	if err == nil {
 		t.Errorf("unexpected nil error")
+	}
+	if outValue != nil || !stamp.IsZero() {
+		t.Errorf("got value %v and stamp %v, expected nil and zero time", outValue, stamp)
+	}
+
+	// non-existent cookie
+	obj.begStr = "xxx="
+	outValue, _, err = obj.Value(nil, request)
+	if err != http.ErrNoCookie {
+		t.Errorf("got error '%v', expected '%v'", err, http.ErrNoCookie)
 	} else if outValue != nil {
 		t.Errorf("unexpected non-nil value")
 	}
@@ -697,69 +607,65 @@ func TestSetAndGetCookie(t *testing.T) {
 	}
 }
 
-func TestSetAndGetCookieWithStamp(t *testing.T) {
+func TestMultipleCookies(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+		t.Fatalf("unexpected error: %s", err)
 	}
 	recorder := httptest.NewRecorder()
-	inValue := []byte("some value")
-	now := time.Now().Truncate(time.Second)
-	err = obj.SetValue(recorder, inValue)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+	if err = obj.SetValue(recorder, []byte("some value")); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if err = obj.SetValue(recorder, []byte("other value")); err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	outValue, stamp, err := obj.GetValueAndStamp(nil, request)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	} else if !bytes.Equal(outValue, inValue) {
-		t.Errorf("got value '%s', expected '%s'", outValue, inValue)
+	outValue, stamp, err := obj.Value(nil, request)
+	if err != ErrMultipleCookies {
+		t.Errorf("got error '%v', expected '%v'", err, ErrMultipleCookies)
 	}
-	if stampDiff := stamp.Sub(now); stampDiff > time.Second || stampDiff < -time.Second {
-		t.Error("invalid stamp diff:", stampDiff)
-	}
-
-	// test retrieve non-existent cookie.
-	obj.name = "xxx"
-	outValue, _, err = obj.GetValueAndStamp(nil, request)
-	if err == nil {
-		t.Errorf("unexpected nil error")
-	} else if outValue != nil {
-		t.Errorf("unexpected non-nil value")
+	if outValue != nil || !stamp.IsZero() {
+		t.Errorf("got value %v and stamp %v, expected nil and zero time", outValue, stamp)
 	}
 }
 
-func TestSetAndGetCookiesWithStamp(t *testing.T) {
+func TestCookieValue(t *testing.T) {
 	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+		t.Fatalf("unexpected error: %s", err)
 	}
-	recorder := httptest.NewRecorder()
-	inValue := []byte("some value")
-	now := time.Now().Truncate(time.Second)
-	err = obj.SetValue(recorder, inValue)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+	tests := []struct {
+		lines []string
+		val   string
+		err   error
+	}{
+		{lines: nil, err: http.ErrNoCookie},
+		{lines: []string{""}, err: http.ErrNoCookie},
+		{lines: []string{"a=b; c=d"}, err: http.ErrNoCookie},
+		{lines: []string{"test=v"}, err: http.ErrNoCookie},
+		{lines: []string{"__Host-test2=v"}, err: http.ErrNoCookie},
+		{lines: []string{"x__Host-test=v"}, err: http.ErrNoCookie},
+		{lines: []string{"__Host-test"}, err: http.ErrNoCookie},
+		{lines: []string{"__host-test=v"}, err: http.ErrNoCookie},
+		{lines: []string{"__Host-test=v"}, val: "v"},
+		{lines: []string{"__Host-test="}, val: ""},
+		{lines: []string{"a=b; __Host-test=v; c=d"}, val: "v"},
+		{lines: []string{"a=b;__Host-test=v;c=d"}, val: "v"},
+		{lines: []string{"a=b; \t__Host-test=v \t; c=d"}, val: "v"},
+		{lines: []string{"a=b", "__Host-test=v"}, val: "v"},
+		{lines: []string{"__Host-test=v; __Host-test=w"}, err: ErrMultipleCookies},
+		{lines: []string{"__Host-test=v", "__Host-test=v"}, err: ErrMultipleCookies},
+		{lines: []string{"__Host-test=v; a=b", "c=d; __Host-test=x"}, err: ErrMultipleCookies},
 	}
-	inValue2 := []byte("other value")
-	err = obj.SetValue(recorder, inValue2)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	outValues := obj.GetValues(request.Cookies())
-	if exp, got := 2, len(outValues); exp != got {
-		t.Fatalf("expected %d values, got %d", exp, got)
-	}
-	if !bytes.Equal(outValues[0].Value, inValue) {
-		t.Errorf("expected %s, got %s", string(inValue), string(outValues[0].Value))
-	}
-	if !bytes.Equal(outValues[1].Value, inValue2) {
-		t.Errorf("expected %s, got %s", string(inValue2), string(outValues[1].Value))
-	}
-	if stampDiff := outValues[0].Stamp.Sub(now); stampDiff > time.Second || stampDiff < -time.Second {
-		t.Error("invalid stamp diff:", stampDiff)
+	for _, test := range tests {
+		val, err := obj.cookieValue(test.lines)
+		if err != test.err {
+			t.Errorf("got error '%v', expected '%v' for %q", err, test.err, test.lines)
+			continue
+		}
+		if val != test.val {
+			t.Errorf("got value %q, expected %q for %q", val, test.val, test.lines)
+		}
 	}
 }
 
@@ -937,7 +843,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		_, err := obj.GetValue(out[:0], request)
+		_, _, err := obj.Value(out[:0], request)
 		if err != nil {
 			panic(err)
 		}

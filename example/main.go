@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"html"
 	"log"
@@ -87,25 +86,13 @@ func main() {
 	})
 
 	http.HandleFunc("/val", func(w http.ResponseWriter, r *http.Request) {
-		// A request may contain several cookies with the same name.
-		// Accept the request only if all valid values are equal.
-		var val []byte
-		var found bool
-		for _, res := range myCookie.GetValues(r.Cookies()) {
-			if res.Error != nil {
-				continue // ignore invalid or expired values
-			}
-			if found && !bytes.Equal(val, res.Value) {
-				fmt.Fprint(w, "error: multiple different cookie values")
-				return
-			}
-			val, found = res.Value, true
-		}
-		if !found {
-			fmt.Fprintf(w, "error: no valid value for cookie '%s'", myCookie.Name())
+		val, stamp, err := myCookie.Value(nil, r)
+		if err != nil {
+			fmt.Fprintf(w, "error: %s", html.EscapeString(err.Error()))
 			return
 		}
-		fmt.Fprintf(w, "The value of cookie '%s' is '%s'", myCookie.Name(), html.EscapeString(string(val)))
+		fmt.Fprintf(w, "The value of cookie '%s' is '%s', set at %s", myCookie.Name(),
+			html.EscapeString(string(val)), stamp.Format(time.RFC3339))
 	})
 
 	fmt.Println("Server listening on http://localhost:8080")

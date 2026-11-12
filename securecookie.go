@@ -36,8 +36,7 @@ MustNew function. The function will panic if an error occurs.
 	var obj = securecookie.MustNew("session", key, 2*time.Hour)
 
 A securecookie object is immutable. Its methods can be called from
-different goroutines. The Delete(), SetValue() and GetValues() methods
-are independent.
+different goroutines.
 
 To set a cookie value, call the SetValue() method with a http.ResponseWriter
 w, and a value val as arguments.
@@ -47,24 +46,13 @@ w, and a value val as arguments.
 		// ...
 	}
 
-A request may contain several cookies with the same name. Securecookie
-values are retrieved from an http.Request with the GetValues() method.
-The following example accepts the request only if all the valid values
-are equal.
+The value is retrieved from an http.Request r with the Value() method. The
+value is appended to buf, which may be nil, and returned with the time when
+it was set.
 
-	var val []byte
-	var found bool
-	for _, res := range obj.GetValues(r.Cookies()) {
-		if res.Error != nil {
-			continue // ignore invalid or expired values
-		}
-		if found && !bytes.Equal(val, res.Value) {
-			// different valid values: reject the request
-		}
-		val, found = res.Value, true
-	}
-	if !found {
-		// no valid value
+	val, stamp, err := obj.Value(buf, r)
+	if err != nil {
+		// ...
 	}
 
 A securecookie is deleted by calling the Delete() method with the
@@ -419,122 +407,76 @@ func encodeBase64(dst, src []byte) []byte {
 	return dst
 }
 
-// GetValue returns the value of the first cookie with a matching name.
-// The function uses the dst slice as storage if not nil and big enough.
+// Value appends the decoded value of the cookie to dst, and returns it with
+// the time stamp, truncated to seconds, of when the value was set with
+// SetValue. dst is allocated if nil, or grown if too small.
 //
-// Deprecated: a request may contain several cookies with the same name,
-// for instance one set by another host (cookie tossing), and GetValue
-// only decodes the first one. Use GetValues instead.
-func (o *Obj) GetValue(dst []byte, r *http.Request) ([]byte, error) {
-	c, err := r.Cookie(o.name)
-	if err != nil {
-		return nil, err
-	}
-	return o.decodeValue(dst, c.Value)
-}
-
-// ValueResult is a decoded value with its time stamp, or the error if any. ValueResult
-// are returned by the GetValues method.
-type ValueResult struct {
-	Value []byte
-	Stamp time.Time
-	Error error
-}
-
-// GetValues returns the values and stamp of cookies with a matching
-// name in cookies, or nil if none. A request may contain multiple
-// cookies with the same name, and cookies is usually r.Cookies().
-// For each returned value, Error is nil and Value holds the decoded
-// value (nil when the value is empty), or Error is not nil and Value
-// is nil.
-func (o *Obj) GetValues(cookies []*http.Cookie) []ValueResult {
-	var res []ValueResult
-	for _, c := range cookies {
-		if c.Name == o.name {
-			val, stamp, err := o.decodeValueAndStamp(nil, c.Value)
-			res = append(res, ValueResult{Value: val, Stamp: stamp, Error: err})
-		}
-	}
-	return res
-}
-
-// decodeValue appends the decoded value val to dst.
-// dst is allocated if nil, or grown if too small.
-// Requires: len(val) >= minEncLen && len(val)%4 == 0.
-func (o *Obj) decodeValue(dst []byte, val string) ([]byte, error) {
-	if len(val) < minEncLen {
-		return dst, errors.New("securecookie: encoded value is too short")
-	}
-	if len(val) > maxCookieLen {
-		return dst, errTooLong
-	}
-	var bPtr = bufPool.Get().(*[]byte)
-	defer bufPool.Put(bPtr)
-	var bLen = sha256BlockLen + len(o.name) + len(val)
-	if cap(*bPtr) < bLen {
-		*bPtr = make([]byte, bLen+20)
-	}
-	var b = (*bPtr)[:cap(*bPtr)]
-	var endPos = copy(b, o.ipad[:])
-	endPos += copy(b[endPos:], o.name)
-	var encPos = endPos
-	b, err := decodeBase64(b[:encPos], val)
-	if err != nil {
-		return dst, err
-	}
-	var version, nPad = int(b[encPos] >> 2), int(b[encPos] & 3)
-	if version != encodingVersion {
-		return dst, fmt.Errorf("securecookie: invalid encoding version %d, expected %d",
-			version, encodingVersion)
-	}
-	if nPad > maxPaddingLen {
-		return dst, fmt.Errorf("securecookie: invalid padding length %d, expected value <= %d",
-			nPad, maxPaddingLen)
-	}
-	var valMac = b[len(b)-hmacLen:]
-	b = b[:len(b)-hmacLen]
-	var locMac [hmacLen]byte
-	o.hmacSha256(locMac[:], b)
-	b = b[encPos:]
-	if subtle.ConstantTimeCompare(valMac, locMac[:]) != 1 {
-		return nil, errors.New("securecookie: invalid encoded cookie value (MAC mismatch)")
-	}
-	var iv = b[1 : 1+ivLen]
-	b = b[1+ivLen:]
-	o.xorCtrAes(iv, b)
-	stamp, stampLen := decodeUint64(b)
-	if stampLen == 0 {
-		return dst, errors.New("securecookie: invalid cookie time stamp encoding")
-	}
-	stamp += epochOffset
-	var valStamp = time.Unix(int64(stamp), 0)
-	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
-	if time.Now().Before(valStamp) || (o.maxAge != 0 && time.Now().After(maxStamp)) {
-		return dst, errors.New("securecookie: invalid cookie time stamp value")
-	}
-	return append(dst, b[stampLen:len(b)-nPad]...), nil
-}
-
-// GetValueAndStamp appends the decoded securecookie value to dst.
-// dst is allocated if nil, or grown if too small.
-// Returns the value and the time stamp truncated to seconds when the
-// cookie was generated and added to an http response with SetValue.
-//
-// Deprecated: a request may contain several cookies with the same name,
-// for instance one set by another host (cookie tossing), and
-// GetValueAndStamp only decodes the first one. Use GetValues instead.
-func (o *Obj) GetValueAndStamp(dst []byte, r *http.Request) ([]byte, time.Time, error) {
-	c, err := r.Cookie(o.name)
+// Value returns http.ErrNoCookie when the request has no cookie with the
+// object name, and ErrMultipleCookies when it has more than one. The latter
+// can't happen with user agents supporting the "__Host-" prefix, unless the
+// request was forged. On error, the returned value is nil.
+func (o *Obj) Value(dst []byte, r *http.Request) ([]byte, time.Time, error) {
+	val, err := o.cookieValue(r.Header["Cookie"])
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	return o.decodeValueAndStamp(dst, c.Value)
+	v, stamp, err := o.decodeValue(dst, val)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return v, stamp, nil
 }
 
-// decodeValueAndStamp appends the decoded value val to dst.
-// dst is allocated if nil, or grown if too small.
-// Requires: len(val) >= minEncLen && len(val)%4 == 0.
-func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, error) {
+// ErrMultipleCookies is returned by Value when the request has more than
+// one cookie with the object name.
+var ErrMultipleCookies = errors.New("securecookie: multiple cookies with the same name")
+
+// cookieValue returns the value of the unique cookie with the object name
+// in the Cookie header lines. It returns http.ErrNoCookie if there is
+// none, and ErrMultipleCookies if there is more than one. The returned
+// value is a substring of a line, so no memory is allocated.
+func (o *Obj) cookieValue(lines []string) (string, error) {
+	var val string
+	var found bool
+	for _, line := range lines {
+		for len(line) > 0 {
+			var part string
+			if i := strings.IndexByte(line, ';'); i >= 0 {
+				part, line = line[:i], line[i+1:]
+			} else {
+				part, line = line, ""
+			}
+			part = trimSpace(part)
+			if !strings.HasPrefix(part, o.begStr) {
+				continue
+			}
+			if found {
+				return "", ErrMultipleCookies
+			}
+			val, found = part[len(o.begStr):], true
+		}
+	}
+	if !found {
+		return "", http.ErrNoCookie
+	}
+	return val, nil
+}
+
+// trimSpace returns s without leading and trailing spaces and tabs.
+func trimSpace(s string) string {
+	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
+		s = s[1:]
+	}
+	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// decodeValue appends the decoded value val to dst, and returns it with
+// the time stamp of the value. dst is allocated if nil, or grown if too
+// small.
+func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	if len(val) < minEncLen {
 		return dst, time.Time{}, errors.New("securecookie: encoded value is too short")
 	}
@@ -582,7 +524,8 @@ func (o *Obj) decodeValueAndStamp(dst []byte, val string) ([]byte, time.Time, er
 	stamp += epochOffset
 	var valStamp = time.Unix(int64(stamp), 0)
 	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
-	if time.Now().Before(valStamp) || (o.maxAge != 0 && time.Now().After(maxStamp)) {
+	var now = time.Now()
+	if now.Before(valStamp) || now.After(maxStamp) {
 		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp value")
 	}
 	return append(dst, b[stampLen:len(b)-nPad]...), valStamp, nil
