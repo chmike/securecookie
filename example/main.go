@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/chmike/securecookie/v2"
 )
@@ -67,15 +68,11 @@ func main() {
 		log.Fatal("load key:", err)
 	}
 
-	// In production, use a name with the "__Host-" prefix, Path "/", no
-	// Domain and Secure true. This example uses HTTP for testing purpose.
-	myCookie := securecookie.MustNew("myCookie", key, securecookie.Params{
-		Path:     "/val",      // cookie to be sent back only when URL starts with this path
-		Domain:   "localhost", // cookie to be sent back only when URL domain matches this one
-		MaxAge:   3600,        // cookie becomes invalid 3600 seconds after it is set
-		HTTPOnly: true,        // disallow access by remote javascript code
-		Secure:   false,       // cookie received with HTTP for testing purpose
-	})
+	// The cookie name becomes "__Host-myCookie", and the cookie is Secure.
+	// Browsers usually accept secure cookies from http://localhost, which
+	// allows testing this example without HTTPS. The cookie value becomes
+	// invalid one hour after it is set.
+	myCookie := securecookie.MustNew("myCookie", key, time.Hour)
 
 	http.HandleFunc("/set/", func(w http.ResponseWriter, r *http.Request) {
 		val := "none"

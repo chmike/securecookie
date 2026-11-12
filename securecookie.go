@@ -13,35 +13,27 @@ and decoding needs no heap allocations.
 
 The intended use is to instantiate all secure cookie objects of
 your web site at program start up. In the following example
-"__Host-session" is the cookie name. The key is a byte sequence
-generated with the GenerateRandomKey() function. The same key must
-be used to retrieve the value.
+"session" is the cookie name, and the cookie value becomes invalid
+two hours after it is set. The key is a byte sequence generated with
+the GenerateRandomKey() function. The same key must be used to
+retrieve the value.
 
-	obj, err := securecookie.New("__Host-session", key, securecookie.Params{
-		Path:     "/",                // cookie received for all URL paths
-		MaxAge:   3600,               // cookie becomes invalid 3600
-		                              // seconds after it is set.
-		HTTPOnly: true,               // disallow access by remote
-		                              // javascript code.
-		Secure:   true,               // cookie received only with HTTPS,
-		                              // never with HTTP.
-		SameSite: securecookie.Lax,   // cookie not sent with most
-		                              // cross-site requests.
-	})
+	obj, err := securecookie.New("session", key, 2*time.Hour)
 	if err != nil {
 		// ...
 	}
 
+The cookie name is prefixed with "__Host-", and the cookie has the
+attributes "Path=/", "HttpOnly", "Secure" and "SameSite=Lax". The
+SameSite attribute may be changed with an option.
+
+	obj, err := securecookie.New("session", key, 2*time.Hour,
+		securecookie.WithSameSiteStrict())
+
 A securecookie can also be instantiated as a global variable with the
 MustNew function. The function will panic if an error occurs.
 
-	var obj = securecookie.MustNew("__Host-session", key, securecookie.Params{
-		Path:     "/",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: securecookie.Lax,
-	})
+	var obj = securecookie.MustNew("session", key, 2*time.Hour)
 
 A securecookie object is immutable. Its methods can be called from
 different goroutines. The Delete(), SetValue() and GetValues() methods
@@ -82,32 +74,23 @@ http.ResponseWriter w as argument.
 		// ...
 	}
 
-# Security recommendations
+# Security
 
-Use the cookie name prefix "__Host-" for authentication or session
-cookies. User agents only accept such a cookie when it is set with
-Secure, without Domain, and with Path "/" by the host itself. Another
-host, like a sibling subdomain, or a network attacker, can then not
-set a cookie with the same name in the user agent (cookie tossing).
-Use the prefix "__Secure-" when the cookie must be shared with
-subdomains. New returns an error when the parameters don't satisfy the
-prefix requirements.
+The "__Host-" name prefix added by New instructs the user agent to only
+accept the cookie when it is set by the host itself, with Secure, without
+Domain, and with Path "/". Another host, like a sibling subdomain, or a
+network attacker, can then not set a cookie with the same name in the
+user agent (cookie tossing).
 
-An attacker can't forge a valid value, but may set in the user agent
-a valid value obtained from its own session. Use GetValues and reject
-requests with different valid values, as shown above.
-
-With MaxAge 0, the cookie has no Max-Age attribute and is a session
-cookie for the user agent. But the value has no expiration on the
-server side: a copied value is accepted forever. Use a MaxAge greater
-than 0 for authentication or session cookies.
+The value is rejected by the server when it is older than the max age,
+even if the user agent didn't delete the cookie. A copied value can thus
+only be used during that time.
 
 Keep the key secret. Anyone knowing the key can read and forge values.
 */
 package securecookie
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -120,19 +103,31 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 // KeyLen is the byte length of the key.
 const KeyLen = 32
 
-// Keywords used for parameter value.
+// SameSite is the value of the SameSite cookie attribute. It restricts
+// when the user agent sends the cookie with requests initiated by other
+// sites.
+type SameSite int
+
 const (
-	Undefined int = iota
-	Lax
-	None
-	Strict
+	// SameSiteLax sends the cookie with requests from the same site, and
+	// with top-level navigations from other sites using a safe method like
+	// GET (e.g. following a link). It is the default.
+	SameSiteLax SameSite = iota + 1
+
+	// SameSiteStrict sends the cookie only with requests from the same
+	// site. A user following a link from another site arrives without
+	// the cookie.
+	SameSiteStrict
 )
+
+// MaxMaxAge is the maximum cookie max age. User agents limit the cookie
+// lifetime to about 400 days.
+const MaxMaxAge = 400 * 24 * time.Hour
 
 // GenerateRandomKey returns a random key of KeyLen bytes.
 // Use hex.EncodeToString(key) to get the key as hexadecimal string,
@@ -155,51 +150,65 @@ func MustGenerateRandomKey() []byte {
 	return key
 }
 
-// Params holds the optional cookie parameters.
-type Params struct {
-	Path     string // Optional : URL path to which the cookie will be returned
-	Domain   string // Optional : domain to which the cookie will be returned
-	MaxAge   int    // Optional : time offset in seconds from now, must be >= 0, 0 means no expiration on the server side
-	HTTPOnly bool   // Optional : disallow access by remote javascript code
-	Secure   bool   // Optional : cookie is only sent through HTTPS connections
-	SameSite int    // Optional : (None, Lax, or Strict) restrict cookie return (None requires Secure)
-}
-
 // Obj is a validated cookie object.
 type Obj struct {
 	name     string
-	path     string
-	domain   string
 	begStr   string
 	endStr   string
+	delStr   string
 	maxAge   int
-	httpOnly bool
-	secure   bool
-	sameSite int
+	sameSite SameSite
 	ipad     [sha256.BlockSize]byte
 	opad     [sha256.BlockSize]byte
 	block    cipher.Block
 }
 
+// Option is an optional parameter of New and MustNew.
+type Option func(o *Obj)
+
+// WithSameSite sets the SameSite cookie attribute to s.
+func WithSameSite(s SameSite) Option {
+	return func(o *Obj) { o.sameSite = s }
+}
+
+// WithSameSiteLax sets the SameSite cookie attribute to Lax. It is the default.
+func WithSameSiteLax() Option {
+	return WithSameSite(SameSiteLax)
+}
+
+// WithSameSiteStrict sets the SameSite cookie attribute to Strict.
+func WithSameSiteStrict() Option {
+	return WithSameSite(SameSiteStrict)
+}
+
 // MustNew panics if New returns a non-nil error, otherwise returns a cookie
 // object. The intended use is to instantiate the object as a global variable.
-func MustNew(name string, key []byte, p Params) *Obj {
-	o, err := New(name, key, p)
+func MustNew(name string, key []byte, maxAge time.Duration, opts ...Option) *Obj {
+	o, err := New(name, key, maxAge, opts...)
 	if err != nil {
 		panic(err)
 	}
 	return o
 }
 
-// New instantiates a validated cookie object with the given cookie name, key
-// and parameters.
+// New instantiates a validated cookie object with the given cookie name, key,
+// maximum age and options.
 //
-// A cookie name starting with the prefix "__Secure-" requires Secure to be
-// true. A cookie name starting with the prefix "__Host-" requires Secure to be
-// true, Domain to be empty and Path to be "/". User agents enforce these
-// rules and ignore cookies that don't satisfy them. The prefixes are matched
-// case-insensitively.
-func New(name string, key []byte, p Params) (*Obj, error) {
+// The cookie name is prefixed with "__Host-". The user agent then only
+// accepts the cookie when it is set by the host itself, and no other host
+// can set a cookie with the same name. The name must not already start with
+// "__Host-" or "__Secure-".
+//
+// The cookie attributes are always "Path=/", "HttpOnly" and "Secure", without
+// Domain, as required by the "__Host-" prefix. The cookie is thus only sent
+// over HTTPS, for all URL paths of the host.
+//
+// maxAge is truncated to seconds. It must be at least one second and can't
+// exceed MaxMaxAge. The value is rejected by the server when it is older than
+// maxAge.
+//
+// The SameSite attribute is Lax by default.
+func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, error) {
 	if len(key) != KeyLen {
 		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
 	}
@@ -210,60 +219,35 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	if err := checkName(name); err != nil {
 		return nil, err
 	}
-	if err := checkPath(p.Path); err != nil {
-		return nil, err
+	if hasPrefixFold(name, hostPrefix) || hasPrefixFold(name, "__Secure-") {
+		return nil, fmt.Errorf("securecookie: name '%s' must not start with __Host- or __Secure-, New adds the __Host- prefix", name)
 	}
-	if err := checkDomain(p.Domain); err != nil {
-		return nil, err
+	var maxAgeSec = int64(maxAge / time.Second)
+	if maxAgeSec < 1 {
+		return nil, fmt.Errorf("securecookie: max age %s must be at least one second", maxAge)
 	}
-	if err := checkPrefix(name, p); err != nil {
-		return nil, err
+	if maxAge > MaxMaxAge {
+		return nil, fmt.Errorf("securecookie: max age %s can't exceed %s", maxAge, MaxMaxAge)
 	}
-	if p.MaxAge < 0 {
-		return nil, errors.New("securecookie: MaxAge can't be negative")
+	var o = &Obj{sameSite: SameSiteLax, block: block}
+	for _, opt := range opts {
+		opt(o)
 	}
-	var buf bytes.Buffer
-	if len(p.Path) > 0 {
-		buf.WriteString("; Path=")
-		buf.WriteString(p.Path)
+	var sameSiteStr string
+	switch o.sameSite {
+	case SameSiteLax:
+		sameSiteStr = "; SameSite=Lax"
+	case SameSiteStrict:
+		sameSiteStr = "; SameSite=Strict"
+	default:
+		return nil, fmt.Errorf("securecookie: invalid SameSite value %d", o.sameSite)
 	}
-	if len(p.Domain) > 0 {
-		buf.WriteString("; Domain=")
-		buf.WriteString(p.Domain)
-	}
-	if p.MaxAge > 0 {
-		buf.WriteString("; Max-Age=")
-		buf.Write(strconv.AppendInt(nil, int64(p.MaxAge), 10))
-	}
-	if p.HTTPOnly {
-		buf.WriteString("; HttpOnly")
-	}
-	if p.Secure {
-		buf.WriteString("; Secure")
-	}
-	switch p.SameSite {
-	case None:
-		if p.Secure {
-			buf.WriteString("; SameSite=None")
-		}
-	case Lax:
-		buf.WriteString("; SameSite=Lax")
-	case Strict:
-		buf.WriteString("; SameSite=Strict")
-	}
-	var begStr = name + "="
-	var o = &Obj{
-		name:     begStr[:len(name)],
-		path:     p.Path,
-		domain:   p.Domain,
-		begStr:   begStr,
-		endStr:   buf.String(),
-		maxAge:   p.MaxAge,
-		httpOnly: p.HTTPOnly,
-		secure:   p.Secure,
-		sameSite: p.SameSite,
-		block:    block,
-	}
+	var fullName = hostPrefix + name
+	o.name = fullName
+	o.begStr = fullName + "="
+	o.maxAge = int(maxAgeSec)
+	o.endStr = "; Path=/; Max-Age=" + strconv.FormatInt(maxAgeSec, 10) + "; HttpOnly; Secure" + sameSiteStr
+	o.delStr = fullName + "=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure" + sameSiteStr
 	for i := range o.ipad {
 		o.ipad[i] = 0x36
 		o.opad[i] = 0x5C
@@ -274,6 +258,9 @@ func New(name string, key []byte, p Params) (*Obj, error) {
 	}
 	return o, nil
 }
+
+// hostPrefix is the cookie name prefix added by New.
+const hostPrefix = "__Host-"
 
 // aesCipher returns the AES cipher block for key, or the wrapped error
 // returned by aes.NewCipher. When forceAesError is true, the key is
@@ -300,89 +287,9 @@ func checkName(name string) error {
 	return nil
 }
 
-// checkPrefix returns an error if the cookie name starts with the prefix
-// "__Secure-" or "__Host-" and the parameters don't satisfy the prefix
-// requirements. Prefixes are matched case-insensitively.
-func checkPrefix(name string, p Params) error {
-	switch {
-	case hasPrefixFold(name, "__Host-"):
-		if !p.Secure || p.Domain != "" || p.Path != "/" {
-			return errors.New(`securecookie: cookie name prefix __Host- requires Secure, an empty Domain and Path "/"`)
-		}
-	case hasPrefixFold(name, "__Secure-"):
-		if !p.Secure {
-			return errors.New("securecookie: cookie name prefix __Secure- requires Secure")
-		}
-	}
-	return nil
-}
-
 // hasPrefixFold returns true if s starts with prefix, ignoring case.
 func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
-}
-
-// checkPath returns an error if the cookie path is invalid.
-func checkPath(path string) error {
-	if err := checkChars(path, isValidPathChar); err != nil {
-		return fmt.Errorf("securecookie: path has %s", err)
-	}
-	return nil
-}
-
-// checkDomain returns an error if the domain name is not valid.
-// See https://tools.ietf.org/html/rfc1034#section-3.5 and
-// https://tools.ietf.org/html/rfc1123#section-2.
-// IP addresses and domain names with a leading period are rejected.
-func checkDomain(name string) error {
-	switch {
-	case len(name) == 0:
-		return nil // an empty domain name will result in a cookie without a domain restriction
-	case len(name) > 255:
-		return fmt.Errorf("securecookie: domain name length is %d, can't exceed 255", len(name))
-	}
-	var l int
-	for i := 0; i < len(name); i++ {
-		b := name[i]
-		if b == '.' {
-			// check domain labels validity
-			switch {
-			case i == l:
-				return fmt.Errorf("securecookie: domain has invalid character '.' at offset %d, label can't begin with a period", i)
-			case i-l > 63:
-				return fmt.Errorf("securecookie: domain byte length of label '%s' is %d, can't exceed 63", name[l:i], i-l)
-			case name[l] == '-':
-				return fmt.Errorf("securecookie: domain label '%s' at offset %d begins with a hyphen", name[l:i], l)
-			case name[i-1] == '-':
-				return fmt.Errorf("securecookie: domain label '%s' at offset %d ends with a hyphen", name[l:i], l)
-			}
-			l = i + 1
-			continue
-		}
-		// test label character validity, note: tests are ordered by decreasing validity frequency
-		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b >= 'A' && b <= 'Z') {
-			// show the printable unicode character starting at byte offset i
-			c, _ := utf8.DecodeRuneInString(name[i:])
-			if c == utf8.RuneError {
-				return fmt.Errorf("securecookie: domain has invalid rune at offset %d", i)
-			}
-			return fmt.Errorf("securecookie: domain has invalid character '%c' at offset %d", c, i)
-		}
-	}
-	// check top level domain validity
-	switch {
-	case l == len(name):
-		return fmt.Errorf("securecookie: domain has missing top level domain, domain can't end with a period")
-	case len(name)-l > 63:
-		return fmt.Errorf("securecookie: domain's top level domain '%s' has byte length %d, can't exceed 63", name[l:], len(name)-l)
-	case name[l] == '-':
-		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d begin with a hyphen", name[l:], l)
-	case name[len(name)-1] == '-':
-		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d ends with a hyphen", name[l:], l)
-	case name[l] >= '0' && name[l] <= '9':
-		return fmt.Errorf("securecookie: domain's top level domain '%s' at offset %d begins with a digit", name[l:], l)
-	}
-	return nil
 }
 
 func isValidNameChar(c byte) bool {
@@ -390,10 +297,6 @@ func isValidNameChar(c byte) bool {
 		(c >= 'A' && c <= 'Z') || c == '!' || (c >= '#' && c < '(') || c == '*' ||
 		c == '+' || c == '-' || c == '.' || c == '^' || c == '_' || c == '`' ||
 		c == '|' || c == '~'
-}
-
-func isValidPathChar(c byte) bool {
-	return (c >= ' ' && c < 0x7F) && c != ';'
 }
 
 func checkChars(s string, isValid func(c byte) bool) error {
@@ -409,40 +312,18 @@ func checkChars(s string, isValid func(c byte) bool) error {
 	return nil
 }
 
-// Name return the securecookie name field value.
+// Name returns the cookie name, including the "__Host-" prefix.
 func (o *Obj) Name() string {
 	return o.name
 }
 
-// Path returns the securecookie path field value.
-func (o *Obj) Path() string {
-	return o.path
+// MaxAge returns the cookie max age, truncated to seconds.
+func (o *Obj) MaxAge() time.Duration {
+	return time.Duration(o.maxAge) * time.Second
 }
 
-// Domain returns the securecookie domain field value.
-func (o *Obj) Domain() string {
-	return o.domain
-}
-
-// MaxAge returns the securecookie max age field value.
-func (o *Obj) MaxAge() int {
-	return o.maxAge
-}
-
-// HTTPOnly returns the securecookie HTTPOnly field value.
-func (o *Obj) HTTPOnly() bool {
-	return o.httpOnly
-}
-
-// Secure returns the securecookie Secure field value.
-func (o *Obj) Secure() bool {
-	return o.secure
-}
-
-// SameSite returns the same site field value. Note that the value None is
-// ignored when the cookie is not secure. When SameSite is undefined, the
-// default is Lax.
-func (o *Obj) SameSite() int {
+// SameSite returns the SameSite cookie attribute value.
+func (o *Obj) SameSite() SameSite {
 	return o.sameSite
 }
 
@@ -773,37 +654,7 @@ func decodeUint64(b []byte) (uint64, int) {
 // Delete adds a request to delete the securecookie to the server
 // response w. The user agent may ignore the request.
 func (o *Obj) Delete(w http.ResponseWriter) error {
-	bPtr := bufPool.Get().(*[]byte)
-	b := (*bPtr)[:0]
-	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	b = append(b, o.name...)
-	b = append(b, '=')
-	if len(o.path) > 0 {
-		b = append(b, "; Path="...)
-		b = append(b, o.path...)
-	}
-	if len(o.domain) > 0 {
-		b = append(b, "; Domain="...)
-		b = append(b, o.domain...)
-	}
-	b = append(b, "; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"...)
-	if o.httpOnly {
-		b = append(b, "; HttpOnly"...)
-	}
-	if o.secure {
-		b = append(b, "; Secure"...)
-	}
-	switch o.sameSite {
-	case None:
-		if o.secure {
-			b = append(b, "; SameSite=None"...)
-		}
-	case Lax:
-		b = append(b, "; SameSite=Lax"...)
-	case Strict:
-		b = append(b, "; SameSite=Strict"...)
-	}
-	w.Header().Add("Set-Cookie", string(b))
+	w.Header().Add("Set-Cookie", o.delStr)
 	return nil
 }
 

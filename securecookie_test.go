@@ -62,133 +62,11 @@ func TestCheckName(t *testing.T) {
 	}
 }
 
-func TestCheckPrefix(t *testing.T) {
-	tests := []struct {
-		n    string
-		p    Params
-		fail bool
-	}{
-		{n: "session", p: Params{}},
-		{n: "_Host-session", p: Params{}},
-		{n: "__Host", p: Params{}},
-		{n: "__Secure", p: Params{}},
-		{n: "__Secure-session", p: Params{Secure: true}},
-		{n: "__Secure-session", p: Params{Secure: true, Domain: "example.com", Path: "/sec"}},
-		{n: "__secure-session", p: Params{Secure: true}},
-		{n: "__Secure-session", p: Params{}, fail: true},
-		{n: "__SECURE-session", p: Params{Domain: "example.com"}, fail: true},
-		{n: "__Host-session", p: Params{Secure: true, Path: "/"}},
-		{n: "__host-session", p: Params{Secure: true, Path: "/"}},
-		{n: "__Host-session", p: Params{Path: "/"}, fail: true},
-		{n: "__Host-session", p: Params{Secure: true}, fail: true},
-		{n: "__Host-session", p: Params{Secure: true, Path: "/sec"}, fail: true},
-		{n: "__Host-session", p: Params{Secure: true, Path: "/", Domain: "example.com"}, fail: true},
-		{n: "__HOST-session", p: Params{Secure: true, Path: "/", Domain: "example.com"}, fail: true},
-	}
-	for _, test := range tests {
-		err := checkPrefix(test.n, test.p)
-		if err != nil && !test.fail {
-			t.Errorf("got error '%s', expected no error for %+v", err, test)
-		}
-		if err == nil && test.fail {
-			t.Errorf("got nil error, expected to fail for %+v", test)
-		}
-	}
-	// check that New calls checkPrefix
-	if _, err := New("__Host-session", make([]byte, KeyLen), Params{Secure: true}); err == nil {
-		t.Errorf("got nil error, expected New to fail on invalid __Host- prefix parameters")
-	}
-	if _, err := New("__Host-session", make([]byte, KeyLen), Params{Secure: true, Path: "/"}); err != nil {
-		t.Errorf("got error '%s', expected New to accept valid __Host- prefix parameters", err)
-	}
-}
-
-func TestCheckPath(t *testing.T) {
-	if err := checkPath("toto"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkPath(";"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkPath("\t"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestCheckDomain(t *testing.T) {
-	if err := checkDomain(""); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain("example.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain("EXAMPLE.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain("foo-bar.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain("www1.foo-bar.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain("192.168.1.1.example.com"); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	if err := checkDomain(strings.Repeat("a", 300)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain(strings.Repeat("a", 70) + ".com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example.com" + strings.Repeat("a", 70)); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("?"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("\t"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("exàmple.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("www.\xbd\xb2.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("-example.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example-.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example.-com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example.com-"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example.1com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain(".example.com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example..com"); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-	if err := checkDomain("example.com."); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
 func (o1 *Obj) Equal(o2 *Obj) bool {
 	if o1 == nil || o2 == nil {
 		return o1 == o2
 	}
-	return o1.name == o2.name &&
-		o1.path == o2.path && o1.domain == o2.domain &&
-		o1.maxAge == o2.maxAge && o1.httpOnly == o2.httpOnly &&
-		o1.secure == o2.secure && o1.sameSite == o2.sameSite
+	return o1.name == o2.name && o1.maxAge == o2.maxAge && o1.sameSite == o2.sameSite
 }
 
 func TestMustNew(t *testing.T) {
@@ -197,12 +75,12 @@ func TestMustNew(t *testing.T) {
 			t.Errorf("expected panic")
 		}
 	}()
-	MustNew("test", nil, Params{})
+	MustNew("test", nil, time.Hour)
 }
 
 func TestNewKeyLength(t *testing.T) {
 	for _, n := range []int{0, 16, 24, KeyLen - 1, KeyLen + 1, 48, 64} {
-		_, err := New("test", make([]byte, n), Params{})
+		_, err := New("test", make([]byte, n), time.Hour)
 		if err == nil {
 			t.Errorf("got nil error, expected key length error for key length %d", n)
 			continue
@@ -211,7 +89,7 @@ func TestNewKeyLength(t *testing.T) {
 			t.Errorf("got error '%s', expected key length error for key length %d", err, n)
 		}
 	}
-	if _, err := New("test", nil, Params{}); err == nil || !strings.Contains(err.Error(), "key length") {
+	if _, err := New("test", nil, time.Hour); err == nil || !strings.Contains(err.Error(), "key length") {
 		t.Errorf("got error '%v', expected key length error for nil key", err)
 	}
 }
@@ -219,7 +97,7 @@ func TestNewKeyLength(t *testing.T) {
 func TestNewAesError(t *testing.T) {
 	forceAesError = true
 	defer func() { forceAesError = false }()
-	_, err := New("test", make([]byte, KeyLen), Params{})
+	_, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err == nil {
 		t.Fatal("unexpected nil error")
 	}
@@ -233,32 +111,41 @@ func TestNew(t *testing.T) {
 	k := make([]byte, KeyLen)
 	kb := make([]byte, KeyLen*3)
 	n := "test"
+	fn := "__Host-test"
+	h := time.Hour
 	tests := []struct {
 		k    []byte
 		n    string
-		p    Params
+		m    time.Duration
+		opts []Option
 		o    *Obj
 		fail bool
 	}{
-		{k: k, n: n, p: Params{}, o: &Obj{name: n}},
-		{k: k[:len(k)-1], n: n, p: Params{}, o: nil, fail: true},
-		{k: make([]byte, KeyLen+1), n: n, p: Params{}, o: nil, fail: true},
-		{k: k, n: "", p: Params{}, o: nil, fail: true},
-		{k: k, n: n, p: Params{Path: "path"}, o: &Obj{name: n, path: "path"}},
-		{k: k, n: n, p: Params{Path: ";"}, o: nil, fail: true},
-		{k: k, n: n, p: Params{Domain: "example.com"}, o: &Obj{name: n, domain: "example.com"}},
-		{k: k, n: n, p: Params{Domain: "example..com"}, o: nil, fail: true},
-		{k: k, n: n, p: Params{MaxAge: 3600}, o: &Obj{name: n, maxAge: 3600}},
-		{k: k, n: n, p: Params{MaxAge: -3600}, o: nil, fail: true},
-		{k: k, n: n, p: Params{HTTPOnly: true}, o: &Obj{name: n, httpOnly: true}},
-		{k: k, n: n, p: Params{Secure: true}, o: &Obj{name: n, secure: true}},
-		{k: kb, n: n, p: Params{Secure: true}, o: &Obj{name: n, secure: true}, fail: true},
-		{k: k, n: n, p: Params{SameSite: None}, o: &Obj{name: n, sameSite: None}},
-		{k: k, n: n, p: Params{SameSite: Lax}, o: &Obj{name: n, sameSite: Lax}},
-		{k: k, n: n, p: Params{SameSite: Strict}, o: &Obj{name: n, sameSite: Strict}},
+		{k: k, n: n, m: h, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{k: k[:len(k)-1], n: n, m: h, fail: true},
+		{k: kb, n: n, m: h, fail: true},
+		{k: k, n: "", m: h, fail: true},
+		{k: k, n: "te;st", m: h, fail: true},
+		{k: k, n: "__Host-test", m: h, fail: true},
+		{k: k, n: "__host-test", m: h, fail: true},
+		{k: k, n: "__Secure-test", m: h, fail: true},
+		{k: k, n: "__SECURE-test", m: h, fail: true},
+		{k: k, n: "_Host-test", m: h, o: &Obj{name: "__Host-_Host-test", maxAge: 3600, sameSite: SameSiteLax}},
+		{k: k, n: n, m: 0, fail: true},
+		{k: k, n: n, m: -h, fail: true},
+		{k: k, n: n, m: 999 * time.Millisecond, fail: true},
+		{k: k, n: n, m: 1500 * time.Millisecond, o: &Obj{name: fn, maxAge: 1, sameSite: SameSiteLax}},
+		{k: k, n: n, m: MaxMaxAge, o: &Obj{name: fn, maxAge: 400 * 24 * 3600, sameSite: SameSiteLax}},
+		{k: k, n: n, m: MaxMaxAge + time.Second, fail: true},
+		{k: k, n: n, m: h, opts: []Option{WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{k: k, n: n, m: h, opts: []Option{WithSameSiteStrict()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
+		{k: k, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict)}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
+		{k: k, n: n, m: h, opts: []Option{WithSameSiteStrict(), WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{k: k, n: n, m: h, opts: []Option{WithSameSite(0)}, fail: true},
+		{k: k, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict + 1)}, fail: true},
 	}
 	for _, test := range tests {
-		obj, err := New(test.n, test.k, test.p)
+		obj, err := New(test.n, test.k, test.m, test.opts...)
 		if err != nil && !test.fail {
 			t.Errorf("got error '%s', expected no error for %+v", err, test)
 			continue
@@ -274,44 +161,22 @@ func TestNew(t *testing.T) {
 			t.Errorf("got object %+v, expected %+v for input %+v", *obj, *test.o, test)
 		}
 	}
-
 }
 
 func TestAccessorsMethods(t *testing.T) {
 	key := MustGenerateRandomKey()
-	name := "test"
-	params := Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: Strict,
-	}
-	obj, err := New(name, key, params)
+	obj, err := New("test", key, time.Hour, WithSameSiteStrict())
 	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+		t.Fatalf("unexpected error: %s", err)
 	}
-	if obj.Path() != params.Path {
-		t.Errorf("got path '%s', expected '%s'", obj.Path(), params.Path)
+	if obj.Name() != "__Host-test" {
+		t.Errorf("got name '%s', expected '%s'", obj.Name(), "__Host-test")
 	}
-	if obj.Domain() != params.Domain {
-		t.Errorf("got domain '%s', expected '%s'", obj.Domain(), params.Domain)
+	if obj.MaxAge() != time.Hour {
+		t.Errorf("got max age %s, expected %s", obj.MaxAge(), time.Hour)
 	}
-	if obj.MaxAge() != params.MaxAge {
-		t.Errorf("got max age %d, expected %d", obj.MaxAge(), params.MaxAge)
-	}
-	if obj.HTTPOnly() != params.HTTPOnly {
-		t.Errorf("got HTTP only %t, expected %t", obj.HTTPOnly(), params.HTTPOnly)
-	}
-	if obj.Secure() != params.Secure {
-		t.Errorf("got secure %t, expected %t", obj.Secure(), params.Secure)
-	}
-	if obj.Name() != name {
-		t.Errorf("got name '%s', expected '%s'", obj.Name(), name)
-	}
-	if obj.SameSite() != Strict {
-		t.Errorf("got same site %d, expected Strict (%d)", obj.SameSite(), Strict)
+	if obj.SameSite() != SameSiteStrict {
+		t.Errorf("got same site %d, expected SameSiteStrict (%d)", obj.SameSite(), SameSiteStrict)
 	}
 }
 
@@ -449,7 +314,7 @@ func TestXorCtrAes(t *testing.T) {
 	var txt = []byte(strings.Repeat("test ", 10))
 	var ref = []byte(strings.Repeat("test ", 10))
 	var key = make([]byte, aes.BlockSize*2)
-	obj, err := New("name", key, Params{})
+	obj, err := New("name", key, time.Hour)
 	if err != nil {
 		t.Fatal("unexpected error:", err)
 	}
@@ -470,7 +335,7 @@ func TestXorCtrAes(t *testing.T) {
 func TestHmacSha256(t *testing.T) {
 	var txt = []byte(strings.Repeat("test ", 10))
 	var key = make([]byte, aes.BlockSize*2)
-	obj, err := New("name", key, Params{})
+	obj, err := New("name", key, time.Hour)
 	if err != nil {
 		t.Fatal("unexpected error:", err)
 	}
@@ -503,7 +368,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 		{in: []byte{0, 1, 2, 3, 4, 5}},
 		{in: []byte{3, 200, 254}},
 	}
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -533,7 +398,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 }
 
 func TestEncodeValueErrors(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -559,7 +424,7 @@ func purgeBufPool() {
 }
 
 func TestDecodeValueErrorsA(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +458,7 @@ func TestDecodeValueErrorsA(t *testing.T) {
 }
 
 func TestDecodeValueErrorsB(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +508,7 @@ func TestDecodeValueErrorsB(t *testing.T) {
 }
 
 func TestDecodeValueErrorsC(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,7 +537,7 @@ func TestDecodeValueErrorsC(t *testing.T) {
 }
 
 func TestDecodeValueAndStampErrorsA(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +571,7 @@ func TestDecodeValueAndStampErrorsA(t *testing.T) {
 }
 
 func TestDecodeValueAndStampErrorsB(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,7 +621,7 @@ func TestDecodeValueAndStampErrorsB(t *testing.T) {
 }
 
 func TestDecodeValueAndStampErrorsC(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), Params{})
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,14 +653,7 @@ func TestDecodeValueAndStampErrorsC(t *testing.T) {
 }
 
 func TestSetAndGetCookie(t *testing.T) {
-	p := Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-	}
-	obj, err := New("test", make([]byte, KeyLen), p)
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -840,14 +698,7 @@ func TestSetAndGetCookie(t *testing.T) {
 }
 
 func TestSetAndGetCookieWithStamp(t *testing.T) {
-	p := Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-	}
-	obj, err := New("test", make([]byte, KeyLen), p)
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -880,14 +731,7 @@ func TestSetAndGetCookieWithStamp(t *testing.T) {
 }
 
 func TestSetAndGetCookiesWithStamp(t *testing.T) {
-	p := Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-	}
-	obj, err := New("test", make([]byte, KeyLen), p)
+	obj, err := New("test", make([]byte, KeyLen), time.Hour)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -920,74 +764,24 @@ func TestSetAndGetCookiesWithStamp(t *testing.T) {
 }
 
 func TestDeleteCookie(t *testing.T) {
-	purgeBufPool()
-	p := Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: None,
+	tests := []struct {
+		opt  Option
+		want string
+	}{
+		{opt: WithSameSiteLax(), want: "__Host-test=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax"},
+		{opt: WithSameSiteStrict(), want: "__Host-test=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict"},
 	}
-	obj, err := New("test", make([]byte, KeyLen), p)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	recorder := httptest.NewRecorder()
-	err = obj.Delete(recorder)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-
-	c, err := request.Cookie("test")
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	} else {
-		if len(c.Value) != 0 {
-			t.Errorf("got value '%s', expected empty string", c.Value)
+	for _, test := range tests {
+		obj, err := New("test", make([]byte, KeyLen), time.Hour, test.opt)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
 		}
-	}
-
-	p.SameSite = Lax
-	obj, err = New("test", make([]byte, KeyLen), p)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	recorder = httptest.NewRecorder()
-	err = obj.Delete(recorder)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	request = &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-
-	c, err = request.Cookie("test")
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	} else {
-		if len(c.Value) != 0 {
-			t.Errorf("got value '%s', expected empty string", c.Value)
+		recorder := httptest.NewRecorder()
+		if err := obj.Delete(recorder); err != nil {
+			t.Errorf("unexpected error: %s", err)
 		}
-	}
-
-	p.SameSite = Strict
-	obj, err = New("test", make([]byte, KeyLen), p)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	recorder = httptest.NewRecorder()
-	err = obj.Delete(recorder)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	request = &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-
-	c, err = request.Cookie("test")
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
-	} else {
-		if len(c.Value) != 0 {
-			t.Errorf("got value '%s', expected empty string", c.Value)
+		if got := recorder.Header().Get("Set-Cookie"); got != test.want {
+			t.Errorf("got Set-Cookie %q, expected %q", got, test.want)
 		}
 	}
 }
@@ -997,13 +791,7 @@ func TestChmikeValueLen(t *testing.T) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-	})
+	obj, err := New(name, key, time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -1012,7 +800,7 @@ func TestChmikeValueLen(t *testing.T) {
 		panic(err)
 	}
 	request := &http.Request{Header: http.Header{"Cookie": recorder.Header().Values("Set-Cookie")}}
-	c, err := request.Cookie("test")
+	c, err := request.Cookie(obj.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1043,14 +831,7 @@ func TestGorillaValueLen(t *testing.T) {
 
 func TestCookieText(t *testing.T) {
 	key := MustGenerateRandomKey()
-	loginCookie, err := New("login", key, Params{
-		Path:     "/",               // cookie received only when URL starts with this path
-		Domain:   "www.example.com", // cookie received only when URL domain matches this one
-		MaxAge:   15 * 24 * 3600,    // cookie becomes invalid after 15 days
-		HTTPOnly: true,              // disallow access by remote javascript code
-		Secure:   true,              // cookie received only with HTTPS, never with HTTP
-		SameSite: Strict,            // cookie only for same site
-	})
+	loginCookie, err := New("login", key, 15*24*time.Hour, WithSameSiteStrict())
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -1059,8 +840,8 @@ func TestCookieText(t *testing.T) {
 		t.Fatal("unexpected error:", err)
 	}
 	hdr := recorder.Header().Get("Set-Cookie")
-	const wantPrefix = "login="
-	const wantSuffix = "; Path=/; Domain=www.example.com; Max-Age=1296000; HttpOnly; Secure; SameSite=Strict"
+	const wantPrefix = "__Host-login="
+	const wantSuffix = "; Path=/; Max-Age=1296000; HttpOnly; Secure; SameSite=Strict"
 	if !strings.HasPrefix(hdr, wantPrefix) || !strings.HasSuffix(hdr, wantSuffix) {
 		t.Errorf("got Set-Cookie %q, expected prefix %q and suffix %q", hdr, wantPrefix, wantSuffix)
 	}
@@ -1069,7 +850,7 @@ func TestCookieText(t *testing.T) {
 var buf1 = make([]byte, 512)
 var buf2 = make([]byte, 512)
 var val = []byte("some value")
-var obj = MustNew("test", make([]byte, KeyLen), Params{MaxAge: 3600})
+var obj = MustNew("test", make([]byte, KeyLen), time.Hour)
 var enc string
 
 func BenchmarkChmikeEncodeValue(b *testing.B) {
@@ -1097,13 +878,7 @@ func BenchmarkChmikeSetCookie(b *testing.B) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, Params{
-		Path:     "path",
-		Domain:   "example.com",
-		MaxAge:   3600,
-		HTTPOnly: true,
-		Secure:   true,
-	})
+	obj, err := New(name, key, time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -1113,7 +888,7 @@ func BenchmarkChmikeSetCookie(b *testing.B) {
 		if err != nil {
 			panic(err)
 		}
-		recorder.Header().Del(name)
+		recorder.Header().Del("Set-Cookie")
 	}
 }
 
@@ -1140,7 +915,7 @@ func BenchmarkGorillaSetCookie(b *testing.B) {
 		}
 		cookie.Value = encoded
 		http.SetCookie(recorder, &cookie)
-		recorder.Header().Del(name)
+		recorder.Header().Del("Set-Cookie")
 	}
 }
 
@@ -1149,7 +924,7 @@ func BenchmarkChmikeGetCookie(b *testing.B) {
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
 	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, Params{MaxAge: 3600})
+	obj, err := New(name, key, time.Hour)
 	if err != nil {
 		panic(err)
 	}
