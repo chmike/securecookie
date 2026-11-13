@@ -11,14 +11,22 @@ What makes this secure cookie package different is that it is fast
 (faster than the Gorilla secure cookie), and the value encoding
 and decoding needs no heap allocations.
 
-The intended use is to instantiate all secure cookie objects of
-your web site at program start up. In the following example
-"session" is the cookie name, and the cookie value becomes invalid
-two hours after it is set. The key is a byte sequence generated with
-the GenerateRandomKey() function. The same key must be used to
-retrieve the value.
+The intended use is to instantiate the key store and all secure cookie
+objects of your web site at program start up. The key store derives the
+keys from a secret seed of SeedLen bytes, generated once with the
+GenerateSeed() function and kept in a file readable only by the program.
+All servers sharing the same seed can decode the values encoded by the
+others.
 
-	obj, err := securecookie.New("session", key, 2*time.Hour)
+	keys, err := securecookie.NewKeyStore(seed)
+	if err != nil {
+		// ...
+	}
+
+In the following example "session" is the cookie name, and the cookie
+value becomes invalid two hours after it is set.
+
+	obj, err := securecookie.New("session", keys, 2*time.Hour)
 	if err != nil {
 		// ...
 	}
@@ -27,13 +35,15 @@ The cookie name is prefixed with "__Host-", and the cookie has the
 attributes "Path=/", "HttpOnly", "Secure" and "SameSite=Lax". The
 SameSite attribute may be changed with an option.
 
-	obj, err := securecookie.New("session", key, 2*time.Hour,
+	obj, err := securecookie.New("session", keys, 2*time.Hour,
 		securecookie.WithSameSiteStrict())
 
-A securecookie can also be instantiated as a global variable with the
-MustNew function. The function will panic if an error occurs.
+The key store and the securecookie can also be instantiated as global
+variables with the MustNewKeyStore and MustNew functions. These functions
+panic if an error occurs.
 
-	var obj = securecookie.MustNew("session", key, 2*time.Hour)
+	var keys = securecookie.MustNewKeyStore(seed)
+	var obj = securecookie.MustNew("session", keys, 2*time.Hour)
 
 A securecookie object is immutable. Its methods can be called from
 different goroutines.
@@ -74,13 +84,20 @@ The value is rejected by the server when it is older than the max age,
 even if the user agent didn't delete the cookie. A copied value can thus
 only be used during that time.
 
-Keep the key secret. Anyone knowing the key can read and forge values.
+Values are encrypted and authenticated with AES-128-GCM. The cookie name
+is authenticated with the value, so that a value of a cookie can't be used
+as value of another cookie. The key changes every two days. It is derived
+from the seed and the time, so that no key synchronization is needed
+between servers sharing the seed.
+
+Keep the seed secret. Anyone knowing the seed can read and forge values.
+For this reason, prefer storing a random session id in the cookie, and
+the session data on the server, rather than sensitive data like a user id.
+A forged value would then only hold a session id unknown to the server.
 */
 package securecookie
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -90,9 +107,6 @@ import (
 	"sync"
 	"time"
 )
-
-// KeyLen is the byte length of the key.
-const KeyLen = 32
 
 // SameSite is the value of the SameSite cookie attribute. It restricts
 // when the user agent sends the cookie with requests initiated by other
@@ -115,27 +129,6 @@ const (
 // lifetime to about 400 days.
 const MaxMaxAge = 400 * 24 * time.Hour
 
-// GenerateRandomKey returns a random key of KeyLen bytes.
-// Use hex.EncodeToString(key) to get the key as hexadecimal string,
-// and hex.DecodeString(keyStr) to convert back from string to byte slice.
-func GenerateRandomKey() ([]byte, error) {
-	key := make([]byte, KeyLen)
-	if err := fillRandom(key); err != nil {
-		return nil, err
-	}
-	return key, nil
-}
-
-// MustGenerateRandomKey returns a random key of KeyLen bytes.
-// It calls GenerateRandomKey and panics if it returns an error.
-func MustGenerateRandomKey() []byte {
-	key, err := GenerateRandomKey()
-	if err != nil {
-		panic("securecookie: generate random key: " + err.Error())
-	}
-	return key
-}
-
 // Obj is a validated cookie object.
 type Obj struct {
 	name     string
@@ -144,8 +137,7 @@ type Obj struct {
 	delStr   string
 	maxAge   int
 	sameSite SameSite
-	keyID    byte
-	aead     cipher.AEAD
+	ks       *KeyStore
 }
 
 // Option is an optional parameter of New and MustNew.
@@ -168,16 +160,16 @@ func WithSameSiteStrict() Option {
 
 // MustNew panics if New returns a non-nil error, otherwise returns a cookie
 // object. The intended use is to instantiate the object as a global variable.
-func MustNew(name string, key []byte, maxAge time.Duration, opts ...Option) *Obj {
-	o, err := New(name, key, maxAge, opts...)
+func MustNew(name string, ks *KeyStore, maxAge time.Duration, opts ...Option) *Obj {
+	o, err := New(name, ks, maxAge, opts...)
 	if err != nil {
 		panic(err)
 	}
 	return o
 }
 
-// New instantiates a validated cookie object with the given cookie name, key,
-// maximum age and options.
+// New instantiates a validated cookie object with the given cookie name, key
+// store, maximum age and options.
 //
 // The cookie name is prefixed with "__Host-". The user agent then only
 // accepts the cookie when it is set by the host itself, and no other host
@@ -193,13 +185,9 @@ func MustNew(name string, key []byte, maxAge time.Duration, opts ...Option) *Obj
 // maxAge.
 //
 // The SameSite attribute is Lax by default.
-func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, error) {
-	if len(key) != KeyLen {
-		return nil, fmt.Errorf("securecookie: key length is %d, expected %d", len(key), KeyLen)
-	}
-	aead, err := aesGCM(key[len(key)/2:])
-	if err != nil {
-		return nil, err
+func New(name string, ks *KeyStore, maxAge time.Duration, opts ...Option) (*Obj, error) {
+	if ks == nil {
+		return nil, errors.New("securecookie: key store must not be nil")
 	}
 	if err := checkName(name); err != nil {
 		return nil, err
@@ -214,7 +202,7 @@ func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, e
 	if maxAge > MaxMaxAge {
 		return nil, fmt.Errorf("securecookie: max age %s can't exceed %s", maxAge, MaxMaxAge)
 	}
-	var o = &Obj{sameSite: SameSiteLax, aead: aead}
+	var o = &Obj{sameSite: SameSiteLax, ks: ks}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -238,23 +226,6 @@ func New(name string, key []byte, maxAge time.Duration, opts ...Option) (*Obj, e
 
 // hostPrefix is the cookie name prefix added by New.
 const hostPrefix = "__Host-"
-
-// aesGCM returns the AES-GCM AEAD for key, or the wrapped error returned by
-// aes.NewCipher or cipher.NewGCM. When forceAesError is true, the key is
-// truncated so that aes.NewCipher returns an error.
-func aesGCM(key []byte) (cipher.AEAD, error) {
-	if forceAesError {
-		key = key[:1]
-	}
-	block, err := aes.NewCipher(key)
-	if err == nil {
-		var aead cipher.AEAD
-		if aead, err = cipher.NewGCM(block); err == nil {
-			return aead, nil
-		}
-	}
-	return nil, fmt.Errorf("securecookie: %w", err)
-}
 
 // checkName returns an error if the cookie name is invalid.
 func checkName(name string) error {
@@ -313,7 +284,7 @@ func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 	bPtr := bufPool.Get().(*[]byte)
 	b := (*bPtr)[:0]
 	defer func() { *bPtr = b; bufPool.Put(bPtr) }()
-	b, err := o.encodeValue(b, v)
+	b, err := o.encodeValue(b, v, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -325,17 +296,20 @@ func (o *Obj) SetValue(w http.ResponseWriter, v []byte) error {
 	return nil
 }
 
-// encodeValue appends the encoded value val to dst.
-// dst is allocated if nil, or grown if too small.
-// Return dst and the error if any.
+// encodeValue appends the encoded value val to dst, with now as time stamp.
+// now is the unix time in seconds. dst is allocated if nil, or grown if too
+// small. Return dst and the error if any.
 //
 // The encoded value is the base64 encoding of
 //
 //	[header][nonce][AES-GCM(stamp ‖ value ‖ padding)][GCM tag]
 //
 // The cookie name and the header are the additional authenticated data.
-func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
-	nowUnix := time.Now().Unix()
+func (o *Obj) encodeValue(dst, val []byte, now int64) ([]byte, error) {
+	if now < int64(epochOffset) {
+		return dst, errClock
+	}
+	var key = o.ks.current(now)
 	var bPtr = bufPool.Get().(*[]byte)
 	defer bufPool.Put(bPtr)
 	var bLen = len(o.name) + headerLen + nonceLen + maxStampLen + len(val) + maxPaddingLen + tagLen
@@ -347,13 +321,13 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	var noncePos = encPos + headerLen
 	var ptPos = noncePos + nonceLen
 	b[encPos] = byte(encodingVersion) << 2
-	b[encPos+1] = o.keyID
+	b[encPos+1] = byte(key.period)
 	var nonce = b[noncePos:ptPos]
 	if err := fillRandom(nonce); err != nil {
 		return dst, err
 	}
 	var endPos = ptPos
-	endPos += encodeUint64(b[endPos:], uint64(nowUnix)-epochOffset)
+	endPos += encodeUint64(b[endPos:], uint64(now)-epochOffset)
 	endPos += copy(b[endPos:], val)
 	var padPos = endPos
 	var nPad = (endPos + tagLen - encPos) % 3
@@ -363,7 +337,7 @@ func (o *Obj) encodeValue(dst, val []byte) ([]byte, error) {
 	for i := padPos; i < endPos; i++ {
 		b[i] = 0
 	}
-	var ct = o.aead.Seal(b[ptPos:ptPos], nonce, b[ptPos:endPos], b[:noncePos])
+	var ct = key.aead.Seal(b[ptPos:ptPos], nonce, b[ptPos:endPos], b[:noncePos])
 	return encodeBase64(dst, b[encPos:ptPos+len(ct)]), nil
 }
 
@@ -416,7 +390,7 @@ func (o *Obj) Value(dst []byte, r *http.Request) ([]byte, time.Time, error) {
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	v, stamp, err := o.decodeValue(dst, val)
+	v, stamp, err := o.decodeValue(dst, val, time.Now().Unix())
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -470,9 +444,12 @@ func trimSpace(s string) string {
 }
 
 // decodeValue appends the decoded value val to dst, and returns it with
-// the time stamp of the value. dst is allocated if nil, or grown if too
-// small.
-func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
+// the time stamp of the value. now is the unix time in seconds. dst is
+// allocated if nil, or grown if too small.
+func (o *Obj) decodeValue(dst []byte, val string, now int64) ([]byte, time.Time, error) {
+	if now < int64(epochOffset) {
+		return dst, time.Time{}, errClock
+	}
 	if len(val) < minEncLen {
 		return dst, time.Time{}, errors.New("securecookie: encoded value is too short")
 	}
@@ -500,12 +477,13 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 		return dst, time.Time{}, fmt.Errorf("securecookie: invalid padding length %d, expected value <= %d",
 			nPad, maxPaddingLen)
 	}
-	if keyID := b[encPos+1]; keyID != o.keyID {
-		return dst, time.Time{}, fmt.Errorf("securecookie: unknown key id %d", keyID)
+	var key = o.ks.find(b[encPos+1], now)
+	if key == nil {
+		return dst, time.Time{}, fmt.Errorf("securecookie: invalid key id %d", b[encPos+1])
 	}
 	var noncePos = encPos + headerLen
 	var ptPos = noncePos + nonceLen
-	b, err = o.aead.Open(b[ptPos:ptPos], b[noncePos:ptPos], b[ptPos:], b[:noncePos])
+	b, err = key.aead.Open(b[ptPos:ptPos], b[noncePos:ptPos], b[ptPos:], b[:noncePos])
 	if err != nil {
 		return nil, time.Time{}, errors.New("securecookie: invalid encoded cookie value (authentication failed)")
 	}
@@ -524,14 +502,11 @@ func (o *Obj) decodeValue(dst []byte, val string) ([]byte, time.Time, error) {
 	if stampLen == 0 {
 		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp encoding")
 	}
-	stamp += epochOffset
-	var valStamp = time.Unix(int64(stamp), 0)
-	var maxStamp = time.Unix(int64(stamp)+int64(o.maxAge), 0)
-	var now = time.Now()
-	if now.Before(valStamp) || now.After(maxStamp) {
+	var valStamp = int64(stamp + epochOffset)
+	if now < valStamp || now > valStamp+int64(o.maxAge) {
 		return dst, time.Time{}, errors.New("securecookie: invalid cookie time stamp value")
 	}
-	return append(dst, b[stampLen:]...), valStamp, nil
+	return append(dst, b[stampLen:]...), time.Unix(valStamp, 0), nil
 }
 
 // decodeBase64 appends base64 decoded src to dst. Grow dst if needed.
@@ -645,6 +620,10 @@ const minEncLen = ((headerLen+nonceLen+tagLen)*8 + 5) / 6
 
 // maxCookieLen is the maximum length of a cookie.
 const maxCookieLen = 4000
+
+// errClock is returned when the system time is before the epoch used for the
+// value time stamps (2017-09-12).
+var errClock = errors.New("securecookie: invalid system time, before 2017-09-12")
 
 // errTooLong is returned when an encoded value to decode is longer than
 // maxCookieLen. Such a value can't have been produced by SetValue, and is

@@ -2,9 +2,7 @@ package securecookie
 
 import (
 	"bytes"
-	"crypto/aes"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,31 +13,8 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-func TestGenerateKeyErrors(t *testing.T) {
-	if _, err := GenerateRandomKey(); err != nil {
-		t.Errorf("unexpected error: %s", err)
-	}
-	forceError = 1
-	defer func() { forceError = 0 }()
-	if _, err := GenerateRandomKey(); err == nil {
-		t.Errorf("unexpected nil error")
-	}
-}
-
-func TestMustGenerateRandomKey(t *testing.T) {
-	key := MustGenerateRandomKey()
-	if len(key) != KeyLen {
-		t.Errorf("len of key is %d, expected %d", len(key), KeyLen)
-	}
-	forceError = 1
-	defer func() { forceError = 0 }()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("expected panic")
-		}
-	}()
-	MustGenerateRandomKey()
-}
+// testKeyStore is the key store used by the tests.
+var testKeyStore = MustNewKeyStore(make([]byte, SeedLen))
 
 func TestCheckName(t *testing.T) {
 	if err := checkName("toto"); err != nil {
@@ -75,74 +50,43 @@ func TestMustNew(t *testing.T) {
 	MustNew("test", nil, time.Hour)
 }
 
-func TestNewKeyLength(t *testing.T) {
-	for _, n := range []int{0, 16, 24, KeyLen - 1, KeyLen + 1, 48, 64} {
-		_, err := New("test", make([]byte, n), time.Hour)
-		if err == nil {
-			t.Errorf("got nil error, expected key length error for key length %d", n)
-			continue
-		}
-		if !strings.Contains(err.Error(), "key length") {
-			t.Errorf("got error '%s', expected key length error for key length %d", err, n)
-		}
-	}
-	if _, err := New("test", nil, time.Hour); err == nil || !strings.Contains(err.Error(), "key length") {
-		t.Errorf("got error '%v', expected key length error for nil key", err)
-	}
-}
-
-func TestNewAesError(t *testing.T) {
-	forceAesError = true
-	defer func() { forceAesError = false }()
-	_, err := New("test", make([]byte, KeyLen), time.Hour)
-	if err == nil {
-		t.Fatal("unexpected nil error")
-	}
-	var keyErr aes.KeySizeError
-	if !errors.As(err, &keyErr) {
-		t.Errorf("got error '%s', expected wrapped aes.KeySizeError", err)
-	}
-}
-
 func TestNew(t *testing.T) {
-	k := make([]byte, KeyLen)
-	kb := make([]byte, KeyLen*3)
+	ks := testKeyStore
 	n := "test"
 	fn := "__Host-test"
 	h := time.Hour
 	tests := []struct {
-		k    []byte
+		ks   *KeyStore
 		n    string
 		m    time.Duration
 		opts []Option
 		o    *Obj
 		fail bool
 	}{
-		{k: k, n: n, m: h, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
-		{k: k[:len(k)-1], n: n, m: h, fail: true},
-		{k: kb, n: n, m: h, fail: true},
-		{k: k, n: "", m: h, fail: true},
-		{k: k, n: "te;st", m: h, fail: true},
-		{k: k, n: "__Host-test", m: h, fail: true},
-		{k: k, n: "__host-test", m: h, fail: true},
-		{k: k, n: "__Secure-test", m: h, fail: true},
-		{k: k, n: "__SECURE-test", m: h, fail: true},
-		{k: k, n: "_Host-test", m: h, o: &Obj{name: "__Host-_Host-test", maxAge: 3600, sameSite: SameSiteLax}},
-		{k: k, n: n, m: 0, fail: true},
-		{k: k, n: n, m: -h, fail: true},
-		{k: k, n: n, m: 999 * time.Millisecond, fail: true},
-		{k: k, n: n, m: 1500 * time.Millisecond, o: &Obj{name: fn, maxAge: 1, sameSite: SameSiteLax}},
-		{k: k, n: n, m: MaxMaxAge, o: &Obj{name: fn, maxAge: 400 * 24 * 3600, sameSite: SameSiteLax}},
-		{k: k, n: n, m: MaxMaxAge + time.Second, fail: true},
-		{k: k, n: n, m: h, opts: []Option{WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
-		{k: k, n: n, m: h, opts: []Option{WithSameSiteStrict()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
-		{k: k, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict)}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
-		{k: k, n: n, m: h, opts: []Option{WithSameSiteStrict(), WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
-		{k: k, n: n, m: h, opts: []Option{WithSameSite(0)}, fail: true},
-		{k: k, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict + 1)}, fail: true},
+		{ks: ks, n: n, m: h, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{ks: nil, n: n, m: h, fail: true},
+		{ks: ks, n: "", m: h, fail: true},
+		{ks: ks, n: "te;st", m: h, fail: true},
+		{ks: ks, n: "__Host-test", m: h, fail: true},
+		{ks: ks, n: "__host-test", m: h, fail: true},
+		{ks: ks, n: "__Secure-test", m: h, fail: true},
+		{ks: ks, n: "__SECURE-test", m: h, fail: true},
+		{ks: ks, n: "_Host-test", m: h, o: &Obj{name: "__Host-_Host-test", maxAge: 3600, sameSite: SameSiteLax}},
+		{ks: ks, n: n, m: 0, fail: true},
+		{ks: ks, n: n, m: -h, fail: true},
+		{ks: ks, n: n, m: 999 * time.Millisecond, fail: true},
+		{ks: ks, n: n, m: 1500 * time.Millisecond, o: &Obj{name: fn, maxAge: 1, sameSite: SameSiteLax}},
+		{ks: ks, n: n, m: MaxMaxAge, o: &Obj{name: fn, maxAge: 400 * 24 * 3600, sameSite: SameSiteLax}},
+		{ks: ks, n: n, m: MaxMaxAge + time.Second, fail: true},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSiteStrict()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict)}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteStrict}},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSiteStrict(), WithSameSiteLax()}, o: &Obj{name: fn, maxAge: 3600, sameSite: SameSiteLax}},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSite(0)}, fail: true},
+		{ks: ks, n: n, m: h, opts: []Option{WithSameSite(SameSiteStrict + 1)}, fail: true},
 	}
 	for _, test := range tests {
-		obj, err := New(test.n, test.k, test.m, test.opts...)
+		obj, err := New(test.n, test.ks, test.m, test.opts...)
 		if err != nil && !test.fail {
 			t.Errorf("got error '%s', expected no error for %+v", err, test)
 			continue
@@ -161,8 +105,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestAccessorsMethods(t *testing.T) {
-	key := MustGenerateRandomKey()
-	obj, err := New("test", key, time.Hour, WithSameSiteStrict())
+	obj, err := New("test", testKeyStore, time.Hour, WithSameSiteStrict())
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -294,6 +237,9 @@ func TestDecodeUint64(t *testing.T) {
 		{in: []byte{}},
 		{in: []byte{0x80}},
 		{in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80}},
+		// overflow: tenth byte bigger than 1, or more than ten bytes
+		{in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02}},
+		{in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}},
 	}
 	for _, test := range tests {
 		out, n := decodeUint64(test.in)
@@ -319,12 +265,12 @@ func TestEncodeDecodeValue(t *testing.T) {
 		{in: []byte{0, 1, 2, 3, 4, 5}},
 		{in: []byte{3, 200, 254}},
 	}
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		panic(err)
 	}
 	for _, test := range tests {
-		out, err := obj.encodeValue(nil, test.in)
+		out, err := obj.encodeValue(nil, test.in, time.Now().Unix())
 		if (err == nil) == test.encFail {
 			if err == nil {
 				t.Errorf("got nil encoding error, expected error for in: %+v", test.in)
@@ -332,7 +278,7 @@ func TestEncodeDecodeValue(t *testing.T) {
 				t.Errorf("got encoding error '%s', expected nil error for in: %+v", err, test.in)
 			}
 		} else {
-			in, _, err := obj.decodeValue(nil, string(out))
+			in, _, err := obj.decodeValue(nil, string(out), time.Now().Unix())
 			if (err == nil) == test.decFail {
 				if err == nil {
 					t.Errorf("got nil decoding error, expected failure for in: %+v", test.in)
@@ -349,14 +295,14 @@ func TestEncodeDecodeValue(t *testing.T) {
 }
 
 func TestEncodeValueErrors(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		panic(err)
 	}
 	buf := make([]byte, 0, 59)
 	forceError = 1
 	defer func() { forceError = 0 }()
-	if _, err := obj.encodeValue(buf, []byte{}); err == nil {
+	if _, err := obj.encodeValue(buf, []byte{}, time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 }
@@ -371,123 +317,132 @@ func purgeBufPool() {
 }
 
 func TestDecodeValueErrorsA(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := obj.decodeValue(nil, ""); err == nil {
+	if _, _, err := obj.decodeValue(nil, "", time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4), time.Now().Unix()); err != errTooLong {
 		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
 	}
-	buf, err := obj.encodeValue(nil, []byte{})
+	buf, err := obj.encodeValue(nil, []byte{}, time.Now().Unix())
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	buf[len(buf)-1]--
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf[len(buf)-1]++
 
 	obj.maxAge -= 10000
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	obj.maxAge += 10000
 }
 
 // sealValue returns the value encoding of plaintext with the given header
-// bytes, sealed with the object key. The length of plaintext, which must
-// include the padding bytes, must be a multiple of 3.
-func sealValue(obj *Obj, tag, keyID byte, plaintext []byte) string {
-	aad := append([]byte(obj.name), tag, keyID)
+// bytes, sealed with the key of the key entry e for the cookie name. The
+// length of plaintext, which must include the padding bytes, must be a
+// multiple of 3.
+func sealValue(e *keyEntry, name string, tag, keyID byte, plaintext []byte) string {
+	aad := append([]byte(name), tag, keyID)
 	nonce := make([]byte, nonceLen)
 	b := append([]byte{tag, keyID}, nonce...)
-	b = obj.aead.Seal(b, nonce, plaintext, aad)
+	b = e.aead.Seal(b, nonce, plaintext, aad)
 	return string(encodeBase64(nil, b))
 }
 
-// stampBytes returns the encoded current time stamp followed by n zero bytes,
+// stampBytes returns the encoded time stamp now followed by n zero bytes,
 // with a total length multiple of 3. It returns the number of zero bytes
 // added to reach a multiple of 3.
-func stampBytes(n int) ([]byte, int) {
+func stampBytes(now int64, n int) ([]byte, int) {
 	var b [maxStampLen]byte
-	l := encodeUint64(b[:], uint64(time.Now().Unix())-epochOffset)
+	l := encodeUint64(b[:], uint64(now)-epochOffset)
 	p := append(b[:l:l], make([]byte, n)...)
 	nPad := (3 - len(p)%3) % 3
 	return append(p, make([]byte, nPad)...), nPad
 }
 
 func TestDecodeValueErrorsB(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now().Unix()
+	cur := obj.ks.current(now)
+	id := byte(cur.period)
 	var tag = byte(encodingVersion) << 2
 
 	// check sealValue: a valid value
-	pt, nPad := stampBytes(4)
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|byte(nPad), 0, pt)); err != nil {
+	pt, nPad := stampBytes(now, 4)
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag|byte(nPad), id, pt), now); err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	// non-zero padding byte
-	pt, nPad = stampBytes(4)
 	if nPad == 0 {
-		pt, nPad = stampBytes(5)
+		pt, nPad = stampBytes(now, 5)
 	}
 	pt[len(pt)-1] = 1
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|byte(nPad), 0, pt)); err == nil || !strings.Contains(err.Error(), "invalid padding bytes") {
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag|byte(nPad), id, pt), now); err == nil || !strings.Contains(err.Error(), "invalid padding bytes") {
 		t.Errorf("got error '%v', expected invalid padding bytes error", err)
 	}
 	// padding length bigger than the plaintext
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|2, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid padding length") {
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag|2, id, nil), now); err == nil || !strings.Contains(err.Error(), "invalid padding length") {
 		t.Errorf("got error '%v', expected invalid padding length error", err)
 	}
 	// invalid padding length value
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag|3, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid padding length 3") {
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag|3, id, nil), now); err == nil || !strings.Contains(err.Error(), "invalid padding length 3") {
 		t.Errorf("got error '%v', expected invalid padding length 3 error", err)
 	}
 	// invalid stamp encoding
 	pt = bytes.Repeat([]byte{0x80}, 12)
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag, 0, pt)); err == nil || !strings.Contains(err.Error(), "time stamp encoding") {
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag, id, pt), now); err == nil || !strings.Contains(err.Error(), "time stamp encoding") {
 		t.Errorf("got error '%v', expected time stamp encoding error", err)
 	}
 	// invalid encoding version
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, 0, 0, nil)); err == nil || !strings.Contains(err.Error(), "invalid encoding version 0") {
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, 0, id, nil), now); err == nil || !strings.Contains(err.Error(), "invalid encoding version 0") {
 		t.Errorf("got error '%v', expected invalid encoding version error", err)
 	}
-	// unknown key id
-	if _, _, err := obj.decodeValue(nil, sealValue(obj, tag, 1, nil)); err == nil || !strings.Contains(err.Error(), "unknown key id 1") {
-		t.Errorf("got error '%v', expected unknown key id error", err)
+	// key id of a period older than the accepted periods
+	badID := byte(cur.period - maxPast - 1)
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, obj.name, tag, badID, nil), now); err == nil || !strings.Contains(err.Error(), "invalid key id") {
+		t.Errorf("got error '%v', expected invalid key id error", err)
 	}
-	// value sealed for another cookie name with the same key
-	other, err := New("other", make([]byte, KeyLen), time.Hour)
-	if err != nil {
-		t.Fatal(err)
+	// value of the previous period
+	prev := obj.ks.entry(cur.period - 1)
+	pt, nPad = stampBytes(now, 4)
+	if _, _, err := obj.decodeValue(nil, sealValue(prev, obj.name, tag|byte(nPad), byte(prev.period), pt), now); err != nil {
+		t.Errorf("unexpected error: %s", err)
 	}
-	pt, nPad = stampBytes(4)
-	if _, _, err := obj.decodeValue(nil, sealValue(other, tag|byte(nPad), 0, pt)); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+	// key id of the current period, sealed with the key of the previous period
+	if _, _, err := obj.decodeValue(nil, sealValue(prev, obj.name, tag|byte(nPad), id, pt), now); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("got error '%v', expected authentication failed error", err)
+	}
+	// value sealed for another cookie name
+	if _, _, err := obj.decodeValue(nil, sealValue(cur, "__Host-other", tag|byte(nPad), id, pt), now); err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Errorf("got error '%v', expected authentication failed error", err)
 	}
 	// header modified after sealing
-	dec, err := decodeBase64(nil, sealValue(obj, tag|byte(nPad), 0, pt))
+	dec, err := decodeBase64(nil, sealValue(cur, obj.name, tag|byte(nPad), id, pt))
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	dec[0] = dec[0]&^3 | byte((nPad+1)%3) // change the padding length to another valid length
-	if _, _, err := obj.decodeValue(nil, string(encodeBase64(nil, dec))); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+	if _, _, err := obj.decodeValue(nil, string(encodeBase64(nil, dec)), now); err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Errorf("got error '%v', expected authentication failed error", err)
 	}
 	// check the encoded value header produced by encodeValue
-	buf, err := obj.encodeValue(nil, []byte{})
+	buf, err := obj.encodeValue(nil, []byte{}, now)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -498,45 +453,129 @@ func TestDecodeValueErrorsB(t *testing.T) {
 	if dec[0]>>2 != encodingVersion {
 		t.Errorf("got encoding version %d, expected %d", dec[0]>>2, encodingVersion)
 	}
-	if dec[1] != 0 {
-		t.Errorf("got key id %d, expected 0", dec[1])
+	if dec[1] != id {
+		t.Errorf("got key id %d, expected %d", dec[1], id)
+	}
+}
+
+func TestDecodeValueBufferGrowth(t *testing.T) {
+	obj, err := New("test", testKeyStore, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	buf, err := obj.encodeValue(nil, []byte("value"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purgeBufPool() // the decoding gets a new empty buffer from the pool
+	if v, _, err := obj.decodeValue(nil, string(buf), now); err != nil || string(v) != "value" {
+		t.Errorf("got value '%s' and error '%v', expected 'value' and no error", v, err)
+	}
+}
+
+func TestClockError(t *testing.T) {
+	obj, err := New("test", testKeyStore, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf, err := obj.encodeValue(nil, []byte("value"), time.Now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := int64(epochOffset) - 1
+	if _, err := obj.encodeValue(nil, []byte("value"), before); err != errClock {
+		t.Errorf("got error '%v', expected '%v'", err, errClock)
+	}
+	if _, _, err := obj.decodeValue(nil, string(buf), before); err != errClock {
+		t.Errorf("got error '%v', expected '%v'", err, errClock)
+	}
+}
+
+func TestDecodePastPeriods(t *testing.T) {
+	obj, err := New("test", testKeyStore, MaxMaxAge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	for _, k := range []int64{0, 1, 2, 100, maxPast - 1, maxPast} {
+		buf, err := obj.encodeValue(nil, []byte("value"), now-k*keyPeriod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := obj.decodeValue(nil, string(buf), now); err != nil {
+			t.Errorf("unexpected error for value encoded %d periods ago: %s", k, err)
+		}
+	}
+	buf, err := obj.encodeValue(nil, []byte("value"), now-(maxPast+1)*keyPeriod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := obj.decodeValue(nil, string(buf), now); err == nil || !strings.Contains(err.Error(), "invalid key id") {
+		t.Errorf("got error '%v', expected invalid key id error", err)
+	}
+	// value encoded one period ahead, by a server with a clock in advance
+	buf, err = obj.encodeValue(nil, []byte("value"), (now/keyPeriod+1)*keyPeriod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := obj.decodeValue(nil, string(buf), now); err == nil || !strings.Contains(err.Error(), "time stamp value") {
+		t.Errorf("got error '%v', expected time stamp value error", err)
+	}
+}
+
+func TestSharedSeed(t *testing.T) {
+	seed := MustGenerateSeed()
+	obj1 := MustNew("test", MustNewKeyStore(seed), time.Hour)
+	obj2 := MustNew("test", MustNewKeyStore(seed), time.Hour)
+	obj3 := MustNew("test", MustNewKeyStore(MustGenerateSeed()), time.Hour)
+	now := time.Now().Unix()
+	buf, err := obj1.encodeValue(nil, []byte("value"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := obj2.decodeValue(nil, string(buf), now); err != nil || string(v) != "value" {
+		t.Errorf("got value '%s' and error '%v', expected 'value' and no error", v, err)
+	}
+	if _, _, err := obj3.decodeValue(nil, string(buf), now); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("got error '%v', expected authentication failed error", err)
 	}
 }
 
 func TestDecodeValueErrorsC(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := obj.decodeValue(nil, ""); err == nil {
+	if _, _, err := obj.decodeValue(nil, "", time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, " "+strings.Repeat("A", minEncLen), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen)); err == nil {
+	if _, _, err := obj.decodeValue(nil, "zA"+strings.Repeat("A", minEncLen), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
-	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4)); err != errTooLong {
+	if _, _, err := obj.decodeValue(nil, strings.Repeat("A", maxCookieLen+4), time.Now().Unix()); err != errTooLong {
 		t.Errorf("got error '%v', expected '%v'", err, errTooLong)
 	}
-	buf, err := obj.encodeValue(nil, []byte{})
+	buf, err := obj.encodeValue(nil, []byte{}, time.Now().Unix())
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	buf[len(buf)-1]--
-	if _, _, err := obj.decodeValue(nil, string(buf)); err == nil {
+	if _, _, err := obj.decodeValue(nil, string(buf), time.Now().Unix()); err == nil {
 		t.Errorf("unexpected nil error")
 	}
 	buf[len(buf)-1]++
 
-	if _, _, err := obj.decodeValue(nil, string(buf)); err != nil {
+	if _, _, err := obj.decodeValue(nil, string(buf), time.Now().Unix()); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 }
 
 func TestSetAndGetCookie(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -604,7 +643,7 @@ func TestSetAndGetCookie(t *testing.T) {
 }
 
 func TestMultipleCookies(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -626,7 +665,7 @@ func TestMultipleCookies(t *testing.T) {
 }
 
 func TestCookieValue(t *testing.T) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -674,7 +713,7 @@ func TestDeleteCookie(t *testing.T) {
 		{opt: WithSameSiteStrict(), want: "__Host-test=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict"},
 	}
 	for _, test := range tests {
-		obj, err := New("test", make([]byte, KeyLen), time.Hour, test.opt)
+		obj, err := New("test", testKeyStore, time.Hour, test.opt)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -692,8 +731,7 @@ func TestChmikeValueLen(t *testing.T) {
 	var name = "test"
 	var inValue = []byte("some value")
 	var recorder = httptest.NewRecorder()
-	var key = make([]byte, KeyLen)
-	obj, err := New(name, key, time.Hour)
+	obj, err := New(name, testKeyStore, time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -722,8 +760,7 @@ func TestGorillaValueLen(t *testing.T) {
 }
 
 func TestCookieText(t *testing.T) {
-	key := MustGenerateRandomKey()
-	loginCookie, err := New("login", key, 15*24*time.Hour, WithSameSiteStrict())
+	loginCookie, err := New("login", testKeyStore, 15*24*time.Hour, WithSameSiteStrict())
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -742,17 +779,17 @@ func TestCookieText(t *testing.T) {
 var buf1 = make([]byte, 512)
 var buf2 = make([]byte, 512)
 var val = []byte("some value")
-var obj = MustNew("test", make([]byte, KeyLen), time.Hour)
+var obj = MustNew("test", testKeyStore, time.Hour)
 var enc string
 
 func BenchmarkChmikeEncodeValue(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		obj.encodeValue(buf1[:0], val)
+		obj.encodeValue(buf1[:0], val, time.Now().Unix())
 	}
 }
 
 func init() {
-	b1, err := obj.encodeValue(buf1[:0], val)
+	b1, err := obj.encodeValue(buf1[:0], val, time.Now().Unix())
 	if err != nil {
 		panic(err)
 	}
@@ -761,7 +798,7 @@ func init() {
 
 func BenchmarkChmikeDecodeValue(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		obj.decodeValue(buf2[:0], enc)
+		obj.decodeValue(buf2[:0], enc, time.Now().Unix())
 	}
 }
 
@@ -783,7 +820,7 @@ func gorillaCodec(nop bool) *securecookie.SecureCookie {
 }
 
 func BenchmarkChmikeSetCookie(b *testing.B) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -831,11 +868,11 @@ func BenchmarkGorillaNopSetCookie(b *testing.B) {
 }
 
 func BenchmarkChmikeGetCookie(b *testing.B) {
-	obj, err := New("test", make([]byte, KeyLen), time.Hour)
+	obj, err := New("test", testKeyStore, time.Hour)
 	if err != nil {
 		panic(err)
 	}
-	encoded, err := obj.encodeValue(nil, val)
+	encoded, err := obj.encodeValue(nil, val, time.Now().Unix())
 	if err != nil {
 		panic(err)
 	}
