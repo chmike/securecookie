@@ -99,6 +99,7 @@ package securecookie
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/http"
@@ -357,24 +358,35 @@ func encodeUint64(b []byte, v uint64) int {
 // encodeBase64 appends the base64 encoding of src to dst. Grow dst if needed.
 // Requires that length of src is a multiple of three, and that src and dst
 // don't overlap.
+//
+// Six bytes are encoded at a time into eight characters written with a single
+// 64 bit store. The loop conditions on len(src) and len(d) allow the compiler
+// to remove all bounds checks.
 func encodeBase64(dst, src []byte) []byte {
 	const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	dstLen := len(dst) + len(src)*8/6
+	dstLen := len(dst) + len(src)/3*4
 	if cap(dst) < dstLen {
 		dst = append(make([]byte, 0, dstLen), dst...)
 	}
-	dstIdx, srcIdx := len(dst), 0
-	dst = dst[:dstLen]
-	for dstIdx != dstLen {
-		v := uint64(src[srcIdx])<<16 | uint64(src[srcIdx+1])<<8 | uint64(src[srcIdx+2])
-		srcIdx += 3
-		dst[dstIdx] = base64Chars[(v>>18)&0x3F]
-		dst[dstIdx+1] = base64Chars[(v>>12)&0x3F]
-		dst[dstIdx+2] = base64Chars[(v>>6)&0x3F]
-		dst[dstIdx+3] = base64Chars[v&0x3F]
-		dstIdx += 4
+	d := dst[len(dst):dstLen]
+	for len(src) >= 6 && len(d) >= 8 {
+		v := uint64(src[0])<<40 | uint64(src[1])<<32 | uint64(src[2])<<24 |
+			uint64(src[3])<<16 | uint64(src[4])<<8 | uint64(src[5])
+		u := uint64(base64Chars[v>>42&0x3F])<<56 | uint64(base64Chars[v>>36&0x3F])<<48 |
+			uint64(base64Chars[v>>30&0x3F])<<40 | uint64(base64Chars[v>>24&0x3F])<<32 |
+			uint64(base64Chars[v>>18&0x3F])<<24 | uint64(base64Chars[v>>12&0x3F])<<16 |
+			uint64(base64Chars[v>>6&0x3F])<<8 | uint64(base64Chars[v&0x3F])
+		binary.BigEndian.PutUint64(d, u)
+		src, d = src[6:], d[8:]
 	}
-	return dst
+	if len(src) >= 3 && len(d) >= 4 {
+		v := uint(src[0])<<16 | uint(src[1])<<8 | uint(src[2])
+		d[0] = base64Chars[v>>18&0x3F]
+		d[1] = base64Chars[v>>12&0x3F]
+		d[2] = base64Chars[v>>6&0x3F]
+		d[3] = base64Chars[v&0x3F]
+	}
+	return dst[:dstLen]
 }
 
 // Value appends the decoded value of the cookie to dst, and returns it with
