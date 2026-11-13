@@ -1,0 +1,6 @@
+# replace each hard tab with 4 spaces
+MD010:
+  spaces_per_tab: 4
+# indent nested lists with 4 spaces
+MD007:
+  indent: 4

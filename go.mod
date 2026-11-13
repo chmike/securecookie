@@ -1,3 +1,5 @@
+// Deprecated: use github.com/chmike/securecookie/v2, which is more secure,
+// with automatic key rotation, authenticated encryption and secure defaults.
 module github.com/chmike/securecookie
 
 // used for benchmarking only

@@ -1,11 +1,16 @@
 [![GoDoc](https://img.shields.io/badge/go.dev-reference-blue)](https://pkg.go.dev/github.com/chmike/securecookie)
-[![Build](https://travis-ci.org/chmike/securecookie.svg?branch=master)](https://travis-ci.org/chmike/securecookie?branch=master)
-[![Coverage](https://coveralls.io/repos/github/chmike/securecookie/badge.svg?branch=master)](https://coveralls.io/github/chmike/securecookie?branch=master)
-[![Go Report](https://goreportcard.com/badge/github.com/chmike/securecookie)](https://goreportcard.com/report/github.com/chmike/securecookie)
-![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)
-![release](https://img.shields.io/github/release/chmike/securecookie.svg)
+![Status](https://img.shields.io/badge/status-deprecated-orange.svg)
 
 # Encode and Decode secure cookies
+
+**This version 1 is deprecated. Please use
+[version 2](https://github.com/chmike/securecookie), which is more secure,
+robust and faster:** automatic key rotation, authenticated encryption with
+AES-128-GCM, secure defaults that can't be misconfigured (`__Host-` prefix,
+`Secure`, `HttpOnly`, mandatory maximum age), and value decoding without
+allocation. See
+[Migrating from v1](https://github.com/chmike/securecookie#migrating-from-v1).
+Version 1 only receives security fixes.
 
 This package provides functions to encode and decode secure cookie values.
 
@@ -75,11 +80,11 @@ argument is invalid.
 
 ``` Go
 obj, err := securecookie.New("__Host-session", key, securecookie.Params{
-  Path:     "/",              // cookie received for all URL paths
-  MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
-  HTTPOnly: true,             // disallow access by remote javascript code 
-  Secure:   true,             // cookie received only with HTTPS, never with HTTP
-  SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
+    Path:     "/",              // cookie received for all URL paths
+    MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+    HTTPOnly: true,             // disallow access by remote javascript code 
+    Secure:   true,             // cookie received only with HTTPS, never with HTTP
+    SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
 })
 if err != nil {
     // ...
@@ -104,12 +109,12 @@ method `Delete()`.
 
 ``` Go
 var obj = securecookie.MustNew("__Secure-Auth", key, securecookie.Params{
-  Path:     "/sec",           // cookie received only when URL starts with this path
-  Domain:   "example.com",    // cookie received only when URL domain matches this one
-  MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
-  HTTPOnly: true,             // disallow access by remote javascript code 
-  Secure:   true,             // cookie received only with HTTPS, never with HTTP
-  SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
+    Path:     "/sec",           // cookie received only when URL starts with this path
+    Domain:   "example.com",    // cookie received only when URL domain matches this one
+    MaxAge:   3600,             // cookie becomes invalid 3600 seconds after it is set
+    HTTPOnly: true,             // disallow access by remote javascript code 
+    Secure:   true,             // cookie received only with HTTPS, never with HTTP
+    SameSite: securecookie.Lax, // cookie not sent with most cross-site requests
 })
 ```
 
@@ -137,16 +142,16 @@ only if all the valid values are equal.
 var val []byte
 var found bool
 for _, res := range obj.GetValues(r.Cookies()) {
- if res.Error != nil {
-  continue // ignore invalid or expired values
- }
- if found && !bytes.Equal(val, res.Value) {
-  // different valid values: reject the request
- }
- val, found = res.Value, true
+    if res.Error != nil {
+        continue // ignore invalid or expired values
+    }
+    if found && !bytes.Equal(val, res.Value) {
+        // different valid values: reject the request
+    }
+    val, found = res.Value, true
 }
 if !found {
- // no valid value
+    // no valid value
 }
 ```
 
@@ -160,7 +165,7 @@ only decode the first cookie with a matching name.
 ``` Go
 // with w as the http.ResponseWriter
 if err := obj.Delete(w); err != nil {
-  // ...
+    // ...
 }
 ```
 
@@ -289,14 +294,14 @@ while preserving backwards compatibility if required.
 ## Contributors
 
 - lstokeworth (reddit):
-  - suggest to replace `copy` with `append`,
-  - remove the Expires Params field and use only the MaxAge,
-  - provide a constant date in the past for Delete.
+    - suggest to replace `copy` with `append`,
+    - remove the Expires Params field and use only the MaxAge,
+    - provide a constant date in the past for Delete.
 - cstockton (github):
-  - critical [bug report](https://github.com/chmike/cookie/issues/1),
-  - suggest simpler API.
+    - critical [bug report](https://github.com/chmike/cookie/issues/1),
+    - suggest simpler API.
 - flowonyx (github):
-  - fix many typos in the README and comments.
+    - fix many typos in the README and comments.
 
 ## Usage advise
 
