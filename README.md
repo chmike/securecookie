@@ -1,5 +1,4 @@
 [![GoDoc](https://img.shields.io/badge/go.dev-reference-blue)](https://pkg.go.dev/github.com/chmike/securecookie/v2)
-[![Go Report](https://goreportcard.com/badge/github.com/chmike/securecookie/v2)](https://goreportcard.com/report/github.com/chmike/securecookie/v2)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 ![release](https://img.shields.io/github/release/chmike/securecookie.svg)
 
@@ -76,14 +75,14 @@ Servers sharing the same seed can decode the values encoded by the others.
 // loadSeed returns the seed saved in the file named name. A new seed is
 // generated and saved if the file does not exist.
 func loadSeed(name string) ([]byte, error) {
-	seed, err := os.ReadFile(name)
-	if os.IsNotExist(err) {
-		if seed, err = securecookie.GenerateSeed(); err != nil {
-			return nil, err
-		}
-		return seed, os.WriteFile(name, seed, 0600)
-	}
-	return seed, err
+    seed, err := os.ReadFile(name)
+    if os.IsNotExist(err) {
+        if seed, err = securecookie.GenerateSeed(); err != nil {
+            return nil, err
+        }
+        return seed, os.WriteFile(name, seed, 0600)
+    }
+    return seed, err
 }
 ```
 
@@ -107,12 +106,12 @@ program start up. A key store may be shared by different cookie objects.
 ```go
 keys, err := securecookie.NewKeyStore(seed)
 if err != nil {
-	// ...
+    // ...
 }
 // cookie named "__Host-session", with values valid two hours
 session, err := securecookie.New("session", keys, 2*time.Hour)
 if err != nil {
-	// ...
+    // ...
 }
 ```
 
@@ -131,7 +130,7 @@ user agents. The `SameSite` attribute may be set to `Strict` with an option.
 
 ```go
 admin, err := securecookie.New("admin", keys, 30*time.Minute,
-	securecookie.WithSameSiteStrict())
+    securecookie.WithSameSiteStrict())
 ```
 
 ### Setting a cookie value
@@ -139,7 +138,7 @@ admin, err := securecookie.New("admin", keys, 30*time.Minute,
 ```go
 // with w as the http.ResponseWriter
 if err := session.SetValue(w, val); err != nil {
-	// ...
+    // ...
 }
 ```
 
@@ -152,7 +151,7 @@ when it was set.
 // with r as the *http.Request
 val, stamp, err := session.Value(buf, r)
 if err != nil {
-	// ...
+    // ...
 }
 ```
 
@@ -166,7 +165,7 @@ was forged. On error, the returned value is nil.
 ```go
 // with w as the http.ResponseWriter
 if err := session.Delete(w); err != nil {
-	// ...
+    // ...
 }
 ```
 
@@ -191,10 +190,10 @@ like the user id, on the server, for instance in a database or Redis.
 ```go
 var sid [16]byte
 if _, err := rand.Read(sid[:]); err != nil { // crypto/rand
-	// ...
+    // ...
 }
 if err := session.SetValue(w, sid[:]); err != nil {
-	// ...
+    // ...
 }
 // store the session data with the key sha256.Sum256(sid[:])
 ```
@@ -372,10 +371,10 @@ of:
     [header][nonce][AES-128-GCM(stamp ‖ value ‖ padding)][GCM tag]
 
 - The header is 2 bytes:
-  - the 6 most significant bits of the first byte are the encoding version,
+    - the 6 most significant bits of the first byte are the encoding version,
     currently 1 (version 0 was used by v1), and its 2 least significant bits
     are the number of padding bytes;
-  - the second byte is the key id, the least significant byte of the key
+    - the second byte is the key id, the least significant byte of the key
     period index (unix time / 172800).
 - The nonce is 12 cryptographically secure pseudorandom bytes.
 - The stamp is the unix time minus 1505230500, encoded with
@@ -397,14 +396,14 @@ bytes of the output.
 ## Contributors
 
 - lstokeworth (reddit):
-  - suggest to replace `copy` with `append`,
-  - remove the Expires Params field and use only the MaxAge,
-  - provide a constant date in the past for Delete.
+    - suggest to replace `copy` with `append`,
+    - remove the Expires Params field and use only the MaxAge,
+    - provide a constant date in the past for Delete.
 - cstockton (github):
-  - critical [bug report](https://github.com/chmike/cookie/issues/1),
-  - suggest simpler API.
+    - critical [bug report](https://github.com/chmike/cookie/issues/1),
+    - suggest simpler API.
 - flowonyx (github):
-  - fix many typos in the README and comments.
+    - fix many typos in the README and comments.
 - Claude Opus 5.5 (Anthropic):
-  - assisted with the security review of v1.4 and the design and
+    - assisted with the security review of v1.4 and the design and
     implementation of v2.
